@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f4f1e9">
+  <title>Marketplace — Melodex</title>
+  <link rel="stylesheet" th:href="@{/css/site.css}">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Melodex home"><span class="brand-mark">m</span> melodex</a>
+    <nav aria-label="Main navigation">
+      <a href="/#catalogue" data-i18n="discover">Discover</a>
+      <a href="/search">Advanced search</a>
+      <a href="/marketplace" class="nav-market" aria-current="page">Shop records</a>
+      <a href="/#recognize" data-i18n="identify">Identify a track</a>
+      <a class="nav-sell" href="/sell"><span data-i18n="sellRecord">List a record</span> <span aria-hidden="true">↗</span></a>
+      <select id="language-select" class="language-select" aria-label="Language and currency"><option value="en-US">English (US) · USD</option><option value="en-GB">English (UK) · GBP</option><option value="vi-VN">Tiếng Việt · VND</option><option value="es-ES">Español · EUR</option><option value="fr-FR">Français · EUR</option><option value="ja-JP">日本語 · JPY</option><option value="ko-KR">한국어 · KRW</option><option value="zh-CN">简体中文 · CNY</option></select>
+      <button id="theme-toggle" class="theme-toggle" type="button" aria-pressed="false"><span aria-hidden="true">◐</span> <span data-i18n="darkMode">Dark mode</span></button>
+    </nav>
+  </header>
+  <main class="market-main" th:attr="data-market-view=${view}">
+    <div class="market-heading">
+      <div><p class="eyebrow">MELODEX MARKETPLACE</p><h1>Find your next record.</h1><p>Browse available sample listings, compare format and condition, and keep a wantlist for later.</p></div>
+      <div class="market-heading-actions"><a class="button button-outline" href="/search">Search the full catalogue</a><a class="button button-dark" href="/sell">List a record ↗</a></div>
+    </div>
+
+    <nav class="buyer-tabs" aria-label="Buyer tools">
+      <a th:href="@{/marketplace(view='all')}" th:classappend="${view == 'all'} ? 'active' : ''" th:attr="aria-current=${view == 'all' ? 'page' : null}">All items <span class="tab-count" th:text="${listingPage.totalItems}">0</span></a>
+      <a th:href="@{/marketplace(view='wantlist')}" th:classappend="${view == 'wantlist'} ? 'active' : ''" th:attr="aria-current=${view == 'wantlist' ? 'page' : null}">Items I want <span class="tab-count" data-want-count>0</span></a>
+      <a th:href="@{/marketplace(view='purchases')}" th:classappend="${view == 'purchases'} ? 'active' : ''" th:attr="aria-current=${view == 'purchases' ? 'page' : null}">Purchases</a>
+      <a th:href="@{/marketplace(view='cart')}" th:classappend="${view == 'cart'} ? 'active' : ''" th:attr="aria-current=${view == 'cart' ? 'page' : null}">Cart <span class="tab-count" data-cart-count>0</span></a>
+      <a th:href="@{/marketplace(view='settings')}" th:classappend="${view == 'settings'} ? 'active' : ''" th:attr="aria-current=${view == 'settings' ? 'page' : null}">Buyer settings</a>
+    </nav>
+
+    <div class="market-feedback" id="market-feedback" role="status" aria-live="polite"></div>
+    <div class="notice notice-error" th:if="${!#strings.isEmpty(error)}" th:text="${error}"></div>
+
+    <section class="market-panel" data-panel="all">
+      <div class="market-section-title"><div><h2>Available listings</h2><p><strong th:text="${listingPage.totalItems}">0</strong> items match your filters. Listings marked as demo are examples, not real stock. New catalogue matches can receive a demo offer so the buyer flow can be tried.</p></div><a href="/marketplace?view=all" class="clear-link">Clear filters</a></div>
+      <div class="market-layout">
+        <aside class="market-sidebar">
+          <form class="market-filter-form" method="get" action="/marketplace">
+            <input type="hidden" name="view" value="all">
+            <div class="facet-group"><h3>Search</h3><label><span>Title, artist, or seller</span><input type="search" name="query" th:value="${query}" placeholder="Search listings"></label><label><span>Artist</span><input type="search" name="artist" th:value="${artist}" placeholder="Any artist"></label></div>
+            <div class="facet-group"><h3>Format</h3><label class="check-row"><input type="radio" name="format" value="" th:checked="${#strings.isEmpty(format)}"> All formats</label><label class="check-row" th:each="itemFormat : ${formats}"><input type="radio" name="format" th:value="${itemFormat}" th:checked="${format == itemFormat}"><span th:text="${#strings.capitalize(#strings.toLowerCase(itemFormat))}">Vinyl</span></label></div>
+            <div class="facet-group"><h3>Condition</h3><label class="check-row"><input type="radio" name="condition" value="" th:checked="${#strings.isEmpty(condition)}"> Any condition</label><label class="check-row" th:each="itemCondition : ${conditions}"><input type="radio" name="condition" th:value="${itemCondition}" th:checked="${condition == itemCondition}"><span th:text="${itemCondition == 'LIKE_NEW' ? 'Like new' : #strings.capitalize(#strings.toLowerCase(itemCondition))}">Good</span></label></div>
+            <div class="facet-group"><h3>Price range <small>VND</small></h3><div class="price-range"><label><span>Min</span><input type="number" name="minPrice" min="0" step="1000" th:value="${minPrice}" placeholder="0"></label><label><span>Max</span><input type="number" name="maxPrice" min="0" step="1000" th:value="${maxPrice}" placeholder="No limit"></label></div></div>
+            <div class="facet-group"><h3>Release year</h3><div class="price-range"><label><span>From</span><input type="number" name="fromYear" min="1000" max="2100" th:value="${fromYear}" placeholder="Any"></label><label><span>To</span><input type="number" name="toYear" min="1000" max="2100" th:value="${toYear}" placeholder="Any"></label></div></div>
+            <div class="facet-group"><h3>Seller</h3><label><span>Seller name</span><input type="search" name="seller" th:value="${seller}" placeholder="Any seller"></label></div>
+            <button class="button button-dark filter-submit" type="submit">Apply filters</button>
+          </form>
+        </aside>
+
+        <div class="market-results">
+          <div class="market-toolbar"><span>Sort by</span><form method="get" action="/marketplace" class="sort-form">
+            <input type="hidden" name="view" value="all"><input type="hidden" name="query" th:value="${query}"><input type="hidden" name="artist" th:value="${artist}"><input type="hidden" name="fromYear" th:value="${fromYear}"><input type="hidden" name="toYear" th:value="${toYear}"><input type="hidden" name="format" th:value="${format}"><input type="hidden" name="condition" th:value="${condition}"><input type="hidden" name="seller" th:value="${seller}"><input type="hidden" name="minPrice" th:value="${minPrice}"><input type="hidden" name="maxPrice" th:value="${maxPrice}">
+            <select name="sort" aria-label="Sort listings"><option value="newest" th:selected="${sort == 'newest'}">Recently listed</option><option value="price-low" th:selected="${sort == 'price-low'}">Price: low to high</option><option value="price-high" th:selected="${sort == 'price-high'}">Price: high to low</option><option value="artist" th:selected="${sort == 'artist'}">Artist</option><option value="title" th:selected="${sort == 'title'}">Title</option><option value="year-new" th:selected="${sort == 'year-new'}">Year: newest</option></select><button class="button button-outline" type="submit">Sort</button>
+          </form></div>
+
+          <div class="listing-list" th:if="${!#lists.isEmpty(listingPage.items)}">
+            <article class="market-listing" th:each="listing : ${listingPage.items}">
+              <div class="listing-cover" th:style="|--cover:${listing.coverColor}|"><span th:text="${listing.title}">Release</span><i aria-hidden="true"></i></div>
+              <div class="listing-copy"><span class="listing-format" th:text="${#strings.capitalize(#strings.toLowerCase(listing.format))}">Vinyl</span><h3 th:text="${listing.title}">Release title</h3><p class="listing-artist"><span th:text="${listing.artist}">Artist</span><span th:if="${listing.releaseYear != null}" th:text="' · ' + ${listing.releaseYear}"> · 2022</span></p><div class="listing-tags"><span class="condition-pill" th:text="${listing.condition == 'LIKE_NEW' ? 'Like new' : #strings.capitalize(#strings.toLowerCase(listing.condition))}">Good</span><span class="demo-badge" th:if="${listing.demo}">Demo listing</span></div><p class="seller-line">Seller · <strong th:text="${listing.seller}">Seller name</strong></p></div>
+              <div class="listing-buy"><b class="localized-price" th:attr="data-price-vnd=${listing.price}" th:text="|${listing.price} ${listing.currency}|">0 VND</b><button type="button" class="button button-dark cart-add" th:attr="data-listing-id=${listing.listingId},data-release-id=${listing.releaseId},data-title=${listing.title},data-artist=${listing.artist},data-format=${listing.format},data-condition=${listing.condition},data-price-vnd=${listing.price},data-currency=${listing.currency},data-seller=${listing.seller}">Add to cart</button><button type="button" class="want-toggle" th:attr="data-want-id=${'release-' + listing.releaseId},data-release-id=${listing.releaseId},data-title=${listing.title},data-artist=${listing.artist}">♡ <span>Wantlist</span></button></div>
+            </article>
+          </div>
+          <div class="empty-state market-empty" th:if="${#lists.isEmpty(listingPage.items)}"><span>♫</span><h3>No listings match these filters</h3><p>Try a wider price range or choose another format.</p><a href="/marketplace">Show all available items</a></div>
+          <div class="market-pagination" th:if="${listingPage.totalPages() > 1}"><a th:if="${listingPage.hasPrevious()}" th:href="@{/marketplace(view='all',query=${query},artist=${artist},fromYear=${fromYear},toYear=${toYear},format=${format},condition=${condition},seller=${seller},minPrice=${minPrice},maxPrice=${maxPrice},sort=${sort},page=${listingPage.page - 1})}">← Previous</a><span th:text="'Page ' + ${listingPage.page} + ' of ' + ${listingPage.totalPages()}">Page 1</span><a th:if="${listingPage.hasNext()}" th:href="@{/marketplace(view='all',query=${query},artist=${artist},fromYear=${fromYear},toYear=${toYear},format=${format},condition=${condition},seller=${seller},minPrice=${minPrice},maxPrice=${maxPrice},sort=${sort},page=${listingPage.page + 1})}">Next →</a></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="buyer-panel" data-panel="wantlist" hidden><div class="market-section-title"><div><h2>Items I want</h2><p>Saved in this browser. Available offers are shown when they exist.</p></div></div><div id="wantlist-items" class="client-list"></div></section>
+    <section class="buyer-panel" data-panel="cart" hidden><div class="market-section-title"><div><h2>Your cart</h2><p>Requests are for demonstration only. No payment or shipping is arranged.</p></div></div><div id="cart-items" class="client-list"></div><aside class="cart-summary" id="cart-summary" hidden><div><span>Subtotal</span><strong id="cart-subtotal" class="localized-price" data-price-vnd="0">0 VND</strong></div><button type="button" id="checkout-button" class="button button-red">Place demo request</button><small>Submitting creates a demo purchase record and marks those listings as requested.</small></aside></section>
+    <section class="buyer-panel" data-panel="purchases" hidden><div class="market-section-title"><div><h2>Purchase requests</h2><p>Demo requests saved under your buyer name.</p></div></div><div id="purchase-items" class="client-list"></div></section>
+    <section class="buyer-panel" data-panel="settings" hidden><div class="market-section-title"><div><h2>Buyer settings</h2><p>Your name links this browser to its demo request history.</p></div></div><form id="buyer-settings-form" class="buyer-settings-card"><label><span>Buyer name</span><input id="buyer-name" maxlength="120" required placeholder="Enter the name for your demo requests"></label><button class="button button-dark" type="submit">Save settings</button><p>Melodex does not create buyer accounts or store addresses. Payment and shipping are outside this demo.</p></form></section>
+    <p class="demo-note market-disclaimer">All marketplace listings and prices in this prototype are samples. Checkout records a request only; it does not charge a payment method.</p>
+  </main>
+  <footer class="footer"><a class="brand" href="/"><span class="brand-mark">m</span> melodex</a><span>BUYER TOOLS · DEMO MARKETPLACE</span></footer>
+  <script th:src="@{/js/site.js}" defer></script>
+</body>
+</html>

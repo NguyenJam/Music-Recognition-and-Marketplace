@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f4f1e9">
+  <title>Advanced catalogue search — Melodex</title>
+  <link rel="stylesheet" th:href="@{/css/site.css}">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Melodex home"><span class="brand-mark">m</span> melodex</a>
+    <nav aria-label="Main navigation">
+      <a href="/#catalogue" data-i18n="discover">Discover</a>
+      <a href="/search" aria-current="page">Advanced search</a>
+      <a href="/marketplace" class="nav-market">Shop records</a>
+      <a href="/#recognize" data-i18n="identify">Identify a track</a>
+      <a class="nav-sell" href="/sell"><span data-i18n="sellRecord">List a record</span> <span aria-hidden="true">↗</span></a>
+      <select id="language-select" class="language-select" aria-label="Language and currency"><option value="en-US">English (US) · USD</option><option value="en-GB">English (UK) · GBP</option><option value="vi-VN">Tiếng Việt · VND</option><option value="es-ES">Español · EUR</option><option value="fr-FR">Français · EUR</option><option value="ja-JP">日本語 · JPY</option><option value="ko-KR">한국어 · KRW</option><option value="zh-CN">简体中文 · CNY</option></select>
+      <button id="theme-toggle" class="theme-toggle" type="button" aria-pressed="false"><span aria-hidden="true">◐</span> <span data-i18n="darkMode">Dark mode</span></button>
+    </nav>
+  </header>
+  <main class="advanced-main">
+    <div class="advanced-heading">
+      <div><p class="eyebrow">SEARCH THE CATALOGUE</p><h1>Find a specific recording.</h1><p>Search the full MusicBrainz metadata snapshot by artist, release, or track. Results are recordings; the release title is shown when it is available.</p></div>
+      <div class="indexed-stat"><strong th:text="${#numbers.formatInteger(catalogueEstimate, 1, 'COMMA')}">32,000,000</strong><span>recording metadata rows indexed</span></div>
+    </div>
+    <form class="advanced-search-form" method="get" action="/search">
+      <section class="advanced-group">
+        <h2>Artist</h2>
+        <label class="wide-field"><span>Artist name</span><input type="search" name="artist" th:value="${artist}" placeholder="e.g. Miles Davis"></label>
+      </section>
+      <section class="advanced-group">
+        <h2>Release details</h2>
+        <div class="advanced-grid">
+          <label><span>Release / album title</span><input type="search" name="release" th:value="${release}" placeholder="e.g. Kind of Blue"></label>
+          <label><span>Track title</span><input type="search" name="track" th:value="${track}" placeholder="e.g. So What"></label>
+        </div>
+      </section>
+      <div class="advanced-actions"><a class="clear-link" href="/search">Clear filters</a><button class="button button-dark" type="submit">Search recordings <span aria-hidden="true">↗</span></button></div>
+      <p class="advanced-note">Artist and track searches use the local search indexes. Release-title matching is available from the same snapshot, but may take longer. This metadata source does not include every marketplace field such as genre, barcode, or country. Opening listings for a new match may add a clearly labelled demo offer.</p>
+    </form>
+
+    <section class="advanced-results" aria-live="polite">
+      <div class="results-title" th:if="${results.searched}"><h2>Matching recordings</h2><span th:text="'Page ' + ${results.page}">Page 1</span></div>
+      <div class="notice notice-error" th:if="${!#strings.isEmpty(results.message)}" th:text="${results.message}"></div>
+      <div class="advanced-result-list" th:if="${!#lists.isEmpty(results.items)}">
+        <article class="advanced-result" th:each="item : ${results.items}">
+          <div class="result-mark" aria-hidden="true">♫</div>
+          <div class="advanced-result-info">
+            <span class="result-kind">RECORDING</span>
+            <h3 th:text="${item.title}">Track title</h3>
+            <p><strong th:text="${item.artist}">Artist</strong><span th:if="${!#strings.isEmpty(item.releaseTitle)}"> · <span th:text="${item.releaseTitle}">Release</span></span></p>
+            <small>MusicBrainz ID: <span th:text="${item.id}">id</span></small>
+          </div>
+          <div class="advanced-result-actions">
+            <button type="button" class="want-toggle" th:attr="data-want-id=${'mbid-' + item.id},data-title=${item.title},data-artist=${item.artist},data-release=${item.releaseTitle}">♡ <span>Wantlist</span></button>
+            <a class="text-action" th:href="@{/marketplace(query=${item.title},artist=${item.artist})}">Check listings ↗</a>
+          </div>
+        </article>
+      </div>
+      <div class="empty-state" th:if="${results.searched and #lists.isEmpty(results.items) and #strings.isEmpty(results.message)}"><span>♪</span><h3>No recordings found</h3><p>Try another artist, release, or track title.</p></div>
+      <div class="advanced-pagination" th:if="${results.searched and !#lists.isEmpty(results.items)}">
+        <a th:if="${results.hasPrevious()}" th:href="@{/search(artist=${artist},release=${release},track=${track},page=${results.page - 1})}">← Previous</a>
+        <span th:text="'Page ' + ${results.page}">Page 1</span>
+        <a th:if="${results.hasNext()}" th:href="@{/search(artist=${artist},release=${release},track=${track},page=${results.page + 1})}">Next →</a>
+      </div>
+    </section>
+  </main>
+  <footer class="footer"><a class="brand" href="/"><span class="brand-mark">m</span> melodex</a><span>FULL METADATA CATALOGUE · DEMO MARKETPLACE</span></footer>
+  <script th:src="@{/js/site.js}" defer></script>
+</body>
+</html>

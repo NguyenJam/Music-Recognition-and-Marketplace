@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>List a release — Melodex</title><link rel="stylesheet" th:href="@{/css/site.css}">
+</head>
+<body>
+  <header class="topbar"><a class="brand" href="/"><span class="brand-mark">m</span> melodex</a><nav aria-label="Main navigation"><a href="/#catalogue" data-i18n="discover">Discover</a><a href="/#recognize" data-i18n="identify">Identify a track</a><a class="nav-sell" href="/sell"><span data-i18n="sellRecord">List a record</span> <span aria-hidden="true">↗</span></a><select id="language-select" class="language-select" aria-label="Language and currency"><option value="en-US">English (US) · USD</option><option value="en-GB">English (UK) · GBP</option><option value="vi-VN">Tiếng Việt · VND</option><option value="es-ES">Español · EUR</option><option value="fr-FR">Français · EUR</option><option value="ja-JP">日本語 · JPY</option><option value="ko-KR">한국어 · KRW</option><option value="zh-CN">简体中文 · CNY</option></select><button id="theme-toggle" class="theme-toggle" type="button" aria-pressed="false"><span aria-hidden="true">◐</span> <span data-i18n="darkMode">Dark mode</span></button></nav></header>
+  <main class="sell-main">
+    <a class="back-link" href="/" data-i18n="backCatalogue">← Back to catalogue</a>
+    <section class="sell-card">
+      <p class="eyebrow" data-i18n="addShelf">ADD TO THE SHELF</p><h1 data-i18n="listRelease">List a release.</h1><p class="sell-intro" data-i18n="sellIntro">Choose a catalogue release and add a sample offer. This demo does not take payments or arrange delivery.</p>
+      <div class="notice notice-error" th:if="${error}" th:text="${error}"></div>
+      <form class="sell-form" method="post" action="/sell">
+        <label><span data-i18n="release">Release</span><select name="releaseId" required><option value="" data-i18n="chooseRelease">Choose a release</option><option th:each="release : ${releases}" th:value="${release.id}" th:text="${release.title + ' — ' + release.artist + ' (' + release.releaseYear + ')'}"></option></select></label>
+        <label><span data-i18n="sellerName">Your seller name</span><input name="seller" maxlength="120" required data-i18n-placeholder="sellerPlaceholder" placeholder="e.g. Lantern Records"></label>
+        <div class="form-pair"><label><span data-i18n="format">Format</span><select name="format" id="format-select" required><option th:each="itemFormat : ${formats}" th:value="${itemFormat}" th:text="${#strings.capitalize(#strings.toLowerCase(itemFormat))}"></option></select></label><label id="condition-field"><span data-i18n="condition">Condition</span><select name="condition" id="condition-select"><option th:each="condition : ${conditions}" th:value="${condition}" th:text="${condition == 'LIKE_NEW' ? 'Like new' : #strings.capitalize(#strings.toLowerCase(condition))}"></option></select></label></div>
+        <label><span data-i18n="priceVnd">Price (VND)</span><input type="number" name="price" min="0" step="1000" required data-i18n-placeholder="pricePlaceholder" placeholder="e.g. 250000"><small data-i18n="priceEntryNote">Enter listing prices in VND. Displayed prices are converted for browsing.</small></label>
+        <button class="button button-red" type="submit"><span data-i18n="addDemoListing">Add demo listing</span> <span aria-hidden="true">↗</span></button>
+      </form>
+    </section>
+  </main>
+  <footer class="footer"><a class="brand" href="/"><span class="brand-mark">m</span> melodex</a><span data-i18n="demoMarketplace">DEMO MARKETPLACE</span></footer>
+  <script th:src="@{/js/site.js}" defer></script>
+</body>
+</html>
+

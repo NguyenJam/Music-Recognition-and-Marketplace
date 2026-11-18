@@ -1,0 +1,6 @@
+.git
+.gradle
+local.properties
+application-private.properties
+infra/terraform/.terraform
+infra/terraform/*.tfstate

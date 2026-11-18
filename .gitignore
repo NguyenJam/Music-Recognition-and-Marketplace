@@ -1,0 +1,15 @@
+.gradle/
+**/build/
+local.properties
+.env
+.env.*
+!.env.example
+application-private.properties
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+.idea/
+*.iml
+.DS_Store
