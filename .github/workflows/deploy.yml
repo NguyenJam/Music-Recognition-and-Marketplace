@@ -1,0 +1,142 @@
+name: Verify and deploy Melodex
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: melodex-production
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Build and test deployment image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - name: Run server checks
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon :server:check :server:bootJar
+      - name: Build the production container
+        run: docker build --platform linux/amd64 -t melodex-ci:${{ github.sha }} .
+      - name: Start isolated PostgreSQL test server
+        run: |
+          docker network create melodex-ci
+          docker run -d --name melodex-ci-db --network melodex-ci \
+            -e POSTGRES_DB=music_marketplace -e POSTGRES_USER=music -e POSTGRES_PASSWORD=music \
+            postgres:16-alpine
+          for attempt in $(seq 1 60); do
+            if docker exec melodex-ci-db pg_isready -U music -d music_marketplace >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs melodex-ci-db
+          exit 1
+      - name: Start app and smoke-test the test server
+        run: |
+          docker run -d --name melodex-ci-app --network melodex-ci \
+            -p 127.0.0.1:8080:8080 \
+            -e DATABASE_URL=jdbc:postgresql://melodex-ci-db:5432/music_marketplace \
+            -e DATABASE_USERNAME=music -e DATABASE_PASSWORD=music \
+            melodex-ci:${{ github.sha }}
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:8080/api/health; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs melodex-ci-app
+          exit 1
+      - name: Upload server build
+        uses: actions/upload-artifact@v4
+        with:
+          name: melodex-server-jar-${{ github.sha }}
+          path: server/build/libs/server-0.1.0.jar
+          if-no-files-found: error
+          retention-days: 7
+      - name: Clean up test server
+        if: always()
+        run: |
+          docker rm -f melodex-ci-app melodex-ci-db 2>/dev/null || true
+          docker network rm melodex-ci 2>/dev/null || true
+
+  deploy:
+    name: Publish and deploy to AWS
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: ap-southeast-2
+      ECR_REPOSITORY: melodex
+      ECS_CLUSTER: melodex-cluster
+      ECS_SERVICE: melodex-production
+      TASK_DEFINITION_FAMILY: melodex-production
+      APPLICATION_URL: http://melodex-web-154264562.ap-southeast-2.elb.amazonaws.com
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::373117960272:role/melodex-github-actions-deploy
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: aws-actions/amazon-ecr-login@v2
+      - name: Build and push immutable image
+        id: image
+        env:
+          REGISTRY: 373117960272.dkr.ecr.ap-southeast-2.amazonaws.com
+          IMAGE_TAG: ${{ github.sha }}-${{ github.run_id }}
+        run: |
+          IMAGE_URI="$REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          docker build --platform linux/amd64 -t "$IMAGE_URI" .
+          docker push "$IMAGE_URI"
+          echo "uri=$IMAGE_URI" >> "$GITHUB_OUTPUT"
+      - name: Register task definition with the new image
+        id: task
+        env:
+          IMAGE_URI: ${{ steps.image.outputs.uri }}
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition "$TASK_DEFINITION_FAMILY" \
+            --query taskDefinition --output json > task-definition.json
+          jq --arg image "$IMAGE_URI" '
+            del(.taskDefinitionArn, .revision, .status, .requiresAttributes,
+                .compatibilities, .registeredAt, .registeredBy)
+            | .containerDefinitions |= map(
+                if .name == "web" then .image = $image else . end
+              )
+          ' task-definition.json > task-definition-next.json
+          TASK_DEFINITION_ARN="$(aws ecs register-task-definition \
+            --cli-input-json file://task-definition-next.json \
+            --query taskDefinition.taskDefinitionArn --output text)"
+          echo "arn=$TASK_DEFINITION_ARN" >> "$GITHUB_OUTPUT"
+      - name: Deploy and wait for healthy service
+        env:
+          TASK_DEFINITION_ARN: ${{ steps.task.outputs.arn }}
+        run: |
+          aws ecs update-service \
+            --cluster "$ECS_CLUSTER" \
+            --service "$ECS_SERVICE" \
+            --task-definition "$TASK_DEFINITION_ARN" >/dev/null
+          aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE"
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent "$APPLICATION_URL/api/health"; then
+              exit 0
+            fi
+            sleep 5
+          done
+          exit 1

@@ -4,12 +4,12 @@ Melodex is a Java music discovery and marketplace website. Visitors can identify
 
 ## How the project is deployed
 
-GitHub stores the source code. Jenkins runs the continuous integration checks. Docker packages the Spring Boot server as a container image. Amazon ECR stores versioned images, and Amazon ECS on Fargate runs the production container behind an Application Load Balancer. Neon hosts the shared PostgreSQL database; AWS does not create or copy a second database. Secrets Manager provides the Neon connection, Shazam key, and admin login to the running task. CloudWatch stores the application logs for seven days.
+GitHub stores the source code. Jenkins is available for local CI checks, and GitHub Actions verifies every pull request and deploys changes merged to `main`. The workflow builds the Spring Boot server, tests it against an isolated PostgreSQL test server, publishes an immutable container image to Amazon ECR, then updates Amazon ECS on Fargate behind the Application Load Balancer. AWS assumes a repository-and-branch-scoped IAM role through GitHub OIDC; no long-lived AWS access key is stored in GitHub. Neon hosts the shared PostgreSQL database; AWS does not create or copy a second database. Secrets Manager provides the Neon connection, Shazam key, and admin login to the running task. CloudWatch stores the application logs for seven days and provides the Melodex service dashboard.
 
 The environments are kept simple:
 
 - **Development:** Docker Compose on a team member’s computer, connected to the shared Neon database.
-- **Continuous integration:** Jenkins runs the Gradle checks and builds the application artifact.
+- **Continuous integration and test:** Jenkins can run the Gradle checks locally. GitHub Actions runs the same server checks, starts an isolated PostgreSQL instance and application test server, and verifies `/api/health` before a release.
 - **Production:** one ECS Fargate service in AWS, reached through the load balancer. The deployment can be scaled to two tasks if needed.
 
 Jenkins remains local so it does not need a continuously running AWS virtual machine. Jenkins, Docker, and Terraform have no software licence fee; AWS infrastructure has usage charges.
@@ -40,9 +40,9 @@ For first-time setup, get the initial password with:
 docker exec melodex-jenkins-1 cat /var/jenkins_home/secrets/initialAdminPassword
 ```
 
-Create a Jenkins Pipeline job using **Pipeline script from SCM**, select Git, enter the repository URL and `main` branch, and use `Jenkinsfile` as the script path. The pipeline runs `:server:check` and `:server:bootJar`, then archives the JAR. This stage validates code; the release script below handles publishing and production deployment.
+Create a Jenkins Pipeline job using **Pipeline script from SCM**, select Git, enter the repository URL and `main` branch, and use `Jenkinsfile` as the script path. The pipeline runs `:server:check` and `:server:bootJar`, then archives the JAR. This validates code independently of the production release workflow.
 
-The release is a separate, deliberate step after CI succeeds. `scripts/deploy-ecs.ps1` builds the Docker image, pushes it to ECR, and updates ECS to the new immutable image tag. This keeps routine checks in Jenkins and avoids giving a locally hosted Jenkins container long-lived AWS credentials.
+The GitHub Actions workflow at `.github/workflows/deploy.yml` runs on pull requests and pushes to `main`. Pull requests build and smoke-test the app against a temporary PostgreSQL test server. After a successful push to `main`, the workflow assumes the `melodex-github-actions-deploy` IAM role, pushes an immutable image to ECR, registers a new ECS task definition, waits for a healthy ECS rollout, and calls `/api/health`. The role is restricted to this repository's `main` branch. Configure it once with `scripts/setup-github-actions-deploy-role.ps1` using an AWS administrator profile. The workflow does not read or write catalogue records during a build; the deployed app continues using the shared Neon database through its runtime secret. Database schema changes must be expressed by the SQL initialization or an explicit migration. The manual `scripts/deploy-ecs.ps1` remains available for an initial or recovery release.
 
 ## AWS production deployment
 
@@ -77,7 +77,15 @@ The ALB can use HTTP for a short class demonstration. For a public production si
 
    Terraform shows the resources and asks before applying. The load balancer is billable even while the service has zero tasks, so create it shortly before the demonstration.
 
-3. Publish the runtime values to Secrets Manager:
+3. Create the repository-scoped GitHub deployment role once, using an AWS administrator profile:
+
+   ```powershell
+   .\scripts\setup-github-actions-deploy-role.ps1
+   ```
+
+   The role trusts only the `main` branch of `NguyenJam/Music-Recognition-and-Marketplace` and can publish to the Melodex ECR repository and update the production ECS service. It does not contain database or Shazam credentials.
+
+4. Publish the runtime values to Secrets Manager:
 
    ```powershell
    .\scripts\publish-runtime-secrets.ps1
@@ -85,7 +93,7 @@ The ALB can use HTTP for a short class demonstration. For a public production si
 
    The script asks for the Neon pooled URL, Shazam RapidAPI key, and admin login. It reads the Shazam key from the ignored `application-private.properties` file when present; otherwise, it asks for it without echoing. The admin password must be at least 16 characters. Secret values are not stored in Terraform state or Git.
 
-4. Commit the release source, then build, push, and deploy that commit:
+5. For the initial production release, commit the source and build, push, and deploy that commit:
 
    Before releasing, change `app_desired_count` to `1` in your ignored `terraform.tfvars` file. Keeping it at one prevents later Terraform updates from scaling the site back to zero.
 
@@ -99,11 +107,11 @@ The ALB can use HTTP for a short class demonstration. For a public production si
    terraform -chdir=infra/terraform output -raw application_url
    ```
 
-Each deployment keeps an immutable ECR image tag. ECS replaces the running task, checks it through the load balancer, and rolls back automatically if the deployment does not become healthy.
+The initial deployment keeps an immutable ECR image tag. After the GitHub Actions workflow is enabled on `main`, each successful push follows the same image, health-check, and rollback path automatically.
 
 ### Where to inspect the running services
 
-In the AWS Console, select **Asia Pacific (Sydney) (`ap-southeast-2`)**. Open **ECS → Clusters → `melodex-cluster` → Services → `melodex-production`** to see task status and deployment events. Open **EC2 → Load Balancers → `melodex-web`** for the public endpoint and **Target Groups → `melodex-app`** for health checks. The pushed container images are under **ECR → Repositories → `melodex`**; application logs are under **CloudWatch → Log groups → `/melodex/production`**. The Neon database remains visible in the Neon Console under project `rapid-mud-44861187`.
+In the AWS Console, select **Asia Pacific (Sydney) (`ap-southeast-2`)**. Open **ECS → Clusters → `melodex-cluster` → Services → `melodex-production`** to see task status and deployment events. Open **EC2 → Load Balancers → `melodex-web`** for the public endpoint and **Target Groups → `melodex-app`** for health checks. Open **CloudWatch → Dashboards → `Melodex-Service-Monitoring`** to inspect ECS CPU/memory, healthy targets, response time and server errors. The pushed container images are under **ECR → Repositories → `melodex`**; application logs are under **CloudWatch → Log groups → `/melodex/production`**. The Neon database remains visible in the Neon Console under project `rapid-mud-44861187`.
 
 ### Stopping AWS charges
 
@@ -126,7 +134,9 @@ That is roughly **US$61/month before** log ingestion, image storage, data transf
 - `server/` — Spring Boot website, API, database access, and Shazam integration.
 - `compose.yaml`, `Dockerfile`, and `infra/nginx.conf` — local container development.
 - `Jenkinsfile` — Jenkins continuous integration pipeline.
-- `infra/terraform/` — AWS VPC, Application Load Balancer, ECS/Fargate, ECR, IAM, Secrets Manager, and CloudWatch resources.
+- `infra/terraform/` — AWS VPC, Application Load Balancer, ECS/Fargate, ECR, IAM, Secrets Manager, and CloudWatch resources, including the service dashboard.
+- `.github/workflows/deploy.yml` — pull request verification and main-branch release to ECR/ECS.
+- `scripts/setup-github-actions-deploy-role.ps1` — configures the repository-scoped GitHub OIDC deploy role.
 - `scripts/publish-runtime-secrets.ps1` — stores the deployment credentials in Secrets Manager.
 - `scripts/deploy-ecs.ps1` — builds, tags, pushes, and deploys an immutable application image.
 - `scripts/` — local setup and Neon configuration utilities.
