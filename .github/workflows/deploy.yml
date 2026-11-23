@@ -53,7 +53,7 @@ jobs:
             -e DATABASE_USERNAME=music -e DATABASE_PASSWORD=music \
             melodex-ci:${{ github.sha }}
           for attempt in $(seq 1 60); do
-            if curl --fail --silent http://127.0.0.1:8080/api/health; then
+            if curl --fail --silent http://127.0.0.1:8080/api/health | jq -e '.status == "UP" and .service == "melodex"' >/dev/null; then
               exit 0
             fi
             sleep 2
@@ -134,7 +134,7 @@ jobs:
             --task-definition "$TASK_DEFINITION_ARN" >/dev/null
           aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE"
           for attempt in $(seq 1 30); do
-            if curl --fail --silent "$APPLICATION_URL/api/health"; then
+            if curl --fail --silent "$APPLICATION_URL/api/health" | jq -e '.status == "UP" and .service == "melodex"' >/dev/null; then
               exit 0
             fi
             sleep 5
