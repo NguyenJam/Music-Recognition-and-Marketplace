@@ -106,7 +106,7 @@ resource "aws_security_group" "application" {
 
 resource "terraform_data" "tls_configuration" {
   input = {
-    certificate_arn   = var.certificate_arn
+    certificate_arn    = var.certificate_arn
     application_domain = var.application_domain
   }
 
@@ -335,7 +335,7 @@ resource "aws_ecs_task_definition" "application" {
   memory                   = var.task_memory
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
-  execution_role_arn        = aws_iam_role.task_execution.arn
+  execution_role_arn       = aws_iam_role.task_execution.arn
 
   container_definitions = jsonencode([{
     name      = "web"
@@ -388,7 +388,7 @@ resource "aws_ecs_service" "application" {
 
   deployment_minimum_healthy_percent = 100
   deployment_maximum_percent         = 200
-  health_check_grace_period_seconds = 120
+  health_check_grace_period_seconds  = 120
   enable_execute_command             = false
 
   network_configuration {
