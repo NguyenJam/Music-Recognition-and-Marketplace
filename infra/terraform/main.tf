@@ -1,38 +1,14 @@
 locals {
-  environments = {
-    test = {
-      subnet_index = 0
-    }
-    production = {
-      subnet_index = 1
-    }
-  }
+  admin_paths = [
+    "/admin",
+    "/admin/*",
+    "/api/admin",
+    "/api/admin/*",
+  ]
 }
-
-data "aws_caller_identity" "current" {}
 
 data "aws_availability_zones" "available" {
   state = "available"
-}
-
-data "aws_ami" "ubuntu" {
-  most_recent = true
-  owners      = ["099720109477"]
-
-  filter {
-    name   = "name"
-    values = ["ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*"]
-  }
-
-  filter {
-    name   = "architecture"
-    values = ["x86_64"]
-  }
-
-  filter {
-    name   = "virtualization-type"
-    values = ["hvm"]
-  }
 }
 
 resource "aws_vpc" "main" {
@@ -58,15 +34,6 @@ resource "aws_subnet" "public" {
   tags = { Name = "${var.project_name}-public-${count.index + 1}" }
 }
 
-resource "aws_subnet" "private" {
-  count             = 2
-  vpc_id            = aws_vpc.main.id
-  availability_zone = data.aws_availability_zones.available.names[count.index]
-  cidr_block        = cidrsubnet(var.vpc_cidr, 8, count.index + 10)
-
-  tags = { Name = "${var.project_name}-private-${count.index + 1}" }
-}
-
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
 
@@ -84,17 +51,28 @@ resource "aws_route_table_association" "public" {
   route_table_id = aws_route_table.public.id
 }
 
-resource "aws_security_group" "jenkins" {
-  name        = "${var.project_name}-jenkins"
-  description = "Jenkins administration restricted to the configured administrator CIDR."
+resource "aws_security_group" "load_balancer" {
+  name        = "${var.project_name}-load-balancer"
+  description = "Public web ingress; application traffic is forwarded to the ECS task."
   vpc_id      = aws_vpc.main.id
 
   ingress {
-    description = "Jenkins web console"
-    from_port   = 8080
-    to_port     = 8080
+    description = "HTTP web traffic"
+    from_port   = 80
+    to_port     = 80
     protocol    = "tcp"
-    cidr_blocks = [var.admin_cidr]
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  dynamic "ingress" {
+    for_each = var.certificate_arn == "" ? [] : [var.certificate_arn]
+    content {
+      description = "HTTPS web traffic"
+      from_port   = 443
+      to_port     = 443
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
   }
 
   egress {
@@ -106,17 +84,16 @@ resource "aws_security_group" "jenkins" {
 }
 
 resource "aws_security_group" "application" {
-  for_each    = local.environments
-  name        = "${var.project_name}-${each.key}"
-  description = "HTTP access for the ${each.key} application environment."
+  name        = "${var.project_name}-application"
+  description = "Only the Melodex load balancer can reach the application container."
   vpc_id      = aws_vpc.main.id
 
   ingress {
-    description = "HTTP website through NGINX"
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = each.key == "production" ? ["0.0.0.0/0"] : [var.admin_cidr]
+    description     = "Spring Boot application traffic from the load balancer"
+    from_port       = 8080
+    to_port         = 8080
+    protocol        = "tcp"
+    security_groups = [aws_security_group.load_balancer.id]
   }
 
   egress {
@@ -124,6 +101,148 @@ resource "aws_security_group" "application" {
     to_port     = 0
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+resource "terraform_data" "tls_configuration" {
+  input = {
+    certificate_arn   = var.certificate_arn
+    application_domain = var.application_domain
+  }
+
+  lifecycle {
+    precondition {
+      condition     = var.certificate_arn == "" || var.application_domain != ""
+      error_message = "Set application_domain to the DNS name covered by certificate_arn so the HTTPS URL uses a matching certificate."
+    }
+  }
+}
+
+resource "aws_lb" "application" {
+  name               = "${var.project_name}-web"
+  internal           = false
+  load_balancer_type = "application"
+  ip_address_type    = "ipv4"
+  subnets            = aws_subnet.public[*].id
+  security_groups    = [aws_security_group.load_balancer.id]
+
+  enable_deletion_protection = false
+
+  tags = { Name = "${var.project_name}-web" }
+
+  depends_on = [terraform_data.tls_configuration]
+}
+
+resource "aws_lb_target_group" "application" {
+  name        = "${var.project_name}-app"
+  port        = 8080
+  protocol    = "HTTP"
+  target_type = "ip"
+  vpc_id      = aws_vpc.main.id
+
+  health_check {
+    enabled             = true
+    path                = "/api/health"
+    protocol            = "HTTP"
+    matcher             = "200"
+    interval            = 30
+    timeout             = 10
+    healthy_threshold   = 2
+    unhealthy_threshold = 3
+  }
+
+  tags = { Name = "${var.project_name}-app" }
+}
+
+resource "aws_lb_listener" "http" {
+  load_balancer_arn = aws_lb.application.arn
+  port              = 80
+  protocol          = "HTTP"
+
+  dynamic "default_action" {
+    for_each = var.certificate_arn == "" ? [1] : []
+    content {
+      type             = "forward"
+      target_group_arn = aws_lb_target_group.application.arn
+    }
+  }
+
+  dynamic "default_action" {
+    for_each = var.certificate_arn == "" ? [] : [1]
+    content {
+      type = "redirect"
+      redirect {
+        port        = "443"
+        protocol    = "HTTPS"
+        status_code = "HTTP_301"
+      }
+    }
+  }
+}
+
+resource "aws_lb_listener" "https" {
+  count             = var.certificate_arn == "" ? 0 : 1
+  load_balancer_arn = aws_lb.application.arn
+  port              = 443
+  protocol          = "HTTPS"
+  certificate_arn   = var.certificate_arn
+  ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.application.arn
+  }
+}
+
+locals {
+  application_listener_arn = var.certificate_arn == "" ? aws_lb_listener.http.arn : aws_lb_listener.https[0].arn
+}
+
+resource "aws_lb_listener_rule" "admin_allowed" {
+  listener_arn = local.application_listener_arn
+  priority     = 10
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.application.arn
+  }
+
+  condition {
+    path_pattern {
+      values = local.admin_paths
+    }
+  }
+
+  condition {
+    source_ip {
+      values = [var.admin_cidr]
+    }
+  }
+}
+
+resource "aws_lb_listener_rule" "admin_denied" {
+  listener_arn = local.application_listener_arn
+  priority     = 20
+
+  action {
+    type = "fixed-response"
+    fixed_response {
+      content_type = "text/plain"
+      message_body = "Not found"
+      status_code  = "404"
+    }
+  }
+
+  condition {
+    path_pattern {
+      values = local.admin_paths
+    }
+  }
+
+  condition {
+    source_ip {
+      values = ["0.0.0.0/0"]
+    }
   }
 }
 
@@ -139,10 +258,11 @@ resource "aws_ecr_repository" "app" {
 
 resource "aws_ecr_lifecycle_policy" "app" {
   repository = aws_ecr_repository.app.name
+
   policy = jsonencode({
     rules = [{
       rulePriority = 1
-      description  = "Keep the ten newest commit-tagged images."
+      description  = "Keep the ten newest immutable deployment images."
       selection = {
         tagStatus      = "tagged"
         tagPatternList = ["*"]
@@ -154,209 +274,137 @@ resource "aws_ecr_lifecycle_policy" "app" {
   })
 }
 
-resource "aws_secretsmanager_secret" "rapidapi" {
-  name                    = "${var.project_name}/rapidapi-key"
-  description             = "RapidAPI Shazam key. Add the value after Terraform creates this secret."
+resource "aws_secretsmanager_secret" "runtime" {
+  name                    = "${var.project_name}/runtime"
+  description             = "Neon connection details, Shazam RapidAPI key, and protected admin login."
   recovery_window_in_days = 7
 }
 
-resource "aws_secretsmanager_secret" "neon_database" {
-  name                    = "${var.project_name}/neon-database-connections"
-  description             = "Neon pooled runtime and direct importer URLs for test and production branches in ${var.neon_project_id}."
-  recovery_window_in_days = 7
-}
-
-resource "aws_secretsmanager_secret" "admin" {
-  name                    = "${var.project_name}/admin-credentials"
-  description             = "HTTP Basic credentials for the read-only Melodex admin dashboard."
-  recovery_window_in_days = 7
-}
-
-data "aws_iam_policy_document" "ec2_assume_role" {
+data "aws_iam_policy_document" "ecs_tasks_assume_role" {
   statement {
     actions = ["sts:AssumeRole"]
+
     principals {
       type        = "Service"
-      identifiers = ["ec2.amazonaws.com"]
+      identifiers = ["ecs-tasks.amazonaws.com"]
     }
   }
 }
 
-resource "aws_iam_role" "jenkins" {
-  name               = "${var.project_name}-jenkins-ec2"
-  assume_role_policy = data.aws_iam_policy_document.ec2_assume_role.json
+resource "aws_iam_role" "task_execution" {
+  name               = "${var.project_name}-task-execution"
+  assume_role_policy = data.aws_iam_policy_document.ecs_tasks_assume_role.json
 }
 
-resource "aws_iam_role_policy_attachment" "jenkins_ssm" {
-  role       = aws_iam_role.jenkins.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+resource "aws_iam_role_policy_attachment" "task_execution_managed" {
+  role       = aws_iam_role.task_execution.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
-resource "aws_iam_role_policy_attachment" "jenkins_cloudwatch" {
-  role       = aws_iam_role.jenkins.name
-  policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
-}
-
-resource "aws_iam_role_policy" "jenkins_deploy" {
-  name = "${var.project_name}-jenkins-deploy"
-  role = aws_iam_role.jenkins.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "ecr:GetAuthorizationToken"
-        ]
-        Resource = "*"
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "ecr:BatchCheckLayerAvailability",
-          "ecr:CompleteLayerUpload",
-          "ecr:InitiateLayerUpload",
-          "ecr:PutImage",
-          "ecr:UploadLayerPart"
-        ]
-        Resource = aws_ecr_repository.app.arn
-      },
-      {
-        Effect   = "Allow"
-        Action   = ["ec2:DescribeInstances", "ssm:SendCommand", "ssm:GetCommandInvocation"]
-        Resource = "*"
-      }
-    ]
-  })
-}
-
-resource "aws_iam_instance_profile" "jenkins" {
-  name = "${var.project_name}-jenkins"
-  role = aws_iam_role.jenkins.name
-}
-
-resource "aws_iam_role" "application" {
-  name               = "${var.project_name}-application-ec2"
-  assume_role_policy = data.aws_iam_policy_document.ec2_assume_role.json
-}
-
-resource "aws_iam_role_policy_attachment" "application_ssm" {
-  role       = aws_iam_role.application.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
-}
-
-resource "aws_iam_role_policy_attachment" "application_cloudwatch" {
-  role       = aws_iam_role.application.name
-  policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
-}
-
-resource "aws_iam_role_policy_attachment" "application_ecr" {
-  role       = aws_iam_role.application.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
-}
-
-resource "aws_iam_role_policy" "application_secrets" {
-  name = "${var.project_name}-read-runtime-secrets"
-  role = aws_iam_role.application.id
+resource "aws_iam_role_policy" "task_secrets" {
+  name = "${var.project_name}-read-runtime-secret"
+  role = aws_iam_role.task_execution.id
 
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Effect = "Allow"
-      Action = ["secretsmanager:GetSecretValue"]
-      Resource = [
-        aws_secretsmanager_secret.rapidapi.arn,
-        aws_secretsmanager_secret.neon_database.arn,
-        aws_secretsmanager_secret.admin.arn
-      ]
+      Effect   = "Allow"
+      Action   = ["secretsmanager:GetSecretValue"]
+      Resource = aws_secretsmanager_secret.runtime.arn
     }]
   })
 }
 
-resource "aws_iam_instance_profile" "application" {
-  name = "${var.project_name}-application"
-  role = aws_iam_role.application.name
-}
+resource "aws_ecs_cluster" "application" {
+  name = "${var.project_name}-cluster"
 
-resource "aws_instance" "jenkins" {
-  ami                         = data.aws_ami.ubuntu.id
-  instance_type               = var.jenkins_instance_type
-  subnet_id                   = aws_subnet.public[0].id
-  vpc_security_group_ids      = [aws_security_group.jenkins.id]
-  iam_instance_profile        = aws_iam_instance_profile.jenkins.name
-  associate_public_ip_address = true
-  user_data                   = file("${path.module}/bootstrap-jenkins.sh")
-  user_data_replace_on_change = true
-
-  root_block_device {
-    volume_size           = 60
-    volume_type           = "gp3"
-    encrypted             = true
-    delete_on_termination = true
-  }
-
-  tags = {
-    Name        = "${var.project_name}-jenkins"
-    Environment = "ci"
+  setting {
+    name  = "containerInsights"
+    value = "disabled"
   }
 }
 
-resource "aws_instance" "application" {
-  for_each = local.environments
-
-  ami                         = data.aws_ami.ubuntu.id
-  instance_type               = var.app_instance_type
-  subnet_id                   = aws_subnet.public[each.value.subnet_index].id
-  vpc_security_group_ids      = [aws_security_group.application[each.key].id]
-  iam_instance_profile        = aws_iam_instance_profile.application.name
-  associate_public_ip_address = true
-  user_data = templatefile("${path.module}/bootstrap-app.sh.tftpl", {
-    aws_region            = var.aws_region
-    ecr_registry          = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com"
-    db_secret_arn         = aws_secretsmanager_secret.neon_database.arn
-    admin_secret_arn      = aws_secretsmanager_secret.admin.arn
-    environment           = each.key
-    neon_project_id       = var.neon_project_id
-    rapidapi_secret_arn   = aws_secretsmanager_secret.rapidapi.arn
-    rapidapi_host         = "shazam.p.rapidapi.com"
-    deploy_script_b64     = base64encode(file("${path.module}/../../scripts/deploy-ec2.sh"))
-    compose_file_b64      = base64encode(file("${path.module}/../../compose.aws.yaml"))
-    nginx_config_b64      = base64encode(templatefile("${path.module}/../nginx.aws.conf.tftpl", {
-      admin_cidr = var.admin_cidr
-    }))
-    cloudwatch_config_b64 = base64encode(file("${path.module}/../cloudwatch-agent.json"))
-  })
-  user_data_replace_on_change = true
-
-  root_block_device {
-    volume_size           = 24
-    volume_type           = "gp3"
-    encrypted             = true
-    delete_on_termination = true
-  }
-
-  depends_on = [aws_iam_role_policy.application_secrets]
-
-  tags = {
-    Name        = "${var.project_name}-${each.key}"
-    Environment = each.key
-  }
+resource "aws_cloudwatch_log_group" "application" {
+  name              = "/${var.project_name}/production"
+  retention_in_days = 7
 }
 
-resource "aws_cloudwatch_metric_alarm" "production_cpu" {
-  alarm_name          = "${var.project_name}-production-high-cpu"
-  alarm_description   = "Production EC2 CPU is above 80 percent for two five-minute periods."
-  comparison_operator = "GreaterThanThreshold"
-  evaluation_periods  = 2
-  metric_name         = "CPUUtilization"
-  namespace           = "AWS/EC2"
-  period              = 300
-  statistic           = "Average"
-  threshold           = 80
-  treat_missing_data  = "notBreaching"
+resource "aws_ecs_task_definition" "application" {
+  family                   = "${var.project_name}-production"
+  cpu                      = var.task_cpu
+  memory                   = var.task_memory
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+  execution_role_arn        = aws_iam_role.task_execution.arn
 
-  dimensions = {
-    InstanceId = aws_instance.application["production"].id
+  container_definitions = jsonencode([{
+    name      = "web"
+    image     = "${aws_ecr_repository.app.repository_url}:${var.image_tag}"
+    essential = true
+    cpu       = var.task_cpu
+    memory    = var.task_memory
+    portMappings = [{
+      name          = "http"
+      containerPort = 8080
+      hostPort      = 8080
+      protocol      = "tcp"
+      appProtocol   = "http"
+    }]
+    environment = [
+      { name = "SHAZAM_RAPIDAPI_HOST", value = var.rapidapi_host },
+    ]
+    secrets = [
+      { name = "DATABASE_URL", valueFrom = "${aws_secretsmanager_secret.runtime.arn}:production_database_url::" },
+      { name = "DATABASE_USERNAME", valueFrom = "${aws_secretsmanager_secret.runtime.arn}:production_database_username::" },
+      { name = "DATABASE_PASSWORD", valueFrom = "${aws_secretsmanager_secret.runtime.arn}:production_database_password::" },
+      { name = "SHAZAM_RAPIDAPI_KEY", valueFrom = "${aws_secretsmanager_secret.runtime.arn}:rapidapi_key::" },
+      { name = "ADMIN_USERNAME", valueFrom = "${aws_secretsmanager_secret.runtime.arn}:admin_username::" },
+      { name = "ADMIN_PASSWORD", valueFrom = "${aws_secretsmanager_secret.runtime.arn}:admin_password::" },
+    ]
+    logConfiguration = {
+      logDriver = "awslogs"
+      options = {
+        "awslogs-group"         = aws_cloudwatch_log_group.application.name
+        "awslogs-region"        = var.aws_region
+        "awslogs-stream-prefix" = "web"
+      }
+    }
+  }])
+
+  depends_on = [aws_iam_role_policy_attachment.task_execution_managed, aws_iam_role_policy.task_secrets]
+}
+
+resource "aws_ecs_service" "application" {
+  name            = "${var.project_name}-production"
+  cluster         = aws_ecs_cluster.application.id
+  task_definition = aws_ecs_task_definition.application.arn
+  desired_count   = var.app_desired_count
+  launch_type     = "FARGATE"
+
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true
   }
+
+  deployment_minimum_healthy_percent = 100
+  deployment_maximum_percent         = 200
+  health_check_grace_period_seconds = 120
+  enable_execute_command             = false
+
+  network_configuration {
+    subnets          = aws_subnet.public[*].id
+    security_groups  = [aws_security_group.application.id]
+    assign_public_ip = true
+  }
+
+  load_balancer {
+    target_group_arn = aws_lb_target_group.application.arn
+    container_name   = "web"
+    container_port   = 8080
+  }
+
+  depends_on = [
+    aws_lb_listener_rule.admin_allowed,
+    aws_lb_listener_rule.admin_denied,
+  ]
 }

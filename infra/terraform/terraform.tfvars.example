@@ -1,5 +1,7 @@
-aws_region             = "ap-southeast-1"
-admin_cidr             = "203.0.113.10/32" # Replace with your public IPv4 address and /32.
-jenkins_instance_type  = "t3.large"
-app_instance_type      = "t3.small"
-neon_project_id        = "rapid-mud-44861187"
+aws_region        = "ap-southeast-2"
+admin_cidr        = "203.0.113.10/32" # Replace with your current public IPv4 address and /32.
+app_desired_count = 0                  # Bootstrap the infrastructure before enabling the app.
+image_tag         = "bootstrap"        # scripts/deploy-ecs.ps1 supplies the immutable release tag.
+certificate_arn   = ""                 # Optional ACM certificate ARN; enables HTTPS and redirects HTTP.
+application_domain = ""                # DNS name covered by that ACM certificate.
+neon_project_id   = "rapid-mud-44861187"

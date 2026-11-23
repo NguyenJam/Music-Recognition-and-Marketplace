@@ -5,14 +5,19 @@ variable "project_name" {
 }
 
 variable "aws_region" {
-  description = "AWS region for EC2, ECR, Secrets Manager, and CloudWatch resources."
+  description = "AWS region for the load balancer and ECS deployment."
   type        = string
-  default     = "ap-southeast-1"
+  default     = "ap-southeast-2"
 }
 
 variable "admin_cidr" {
-  description = "Public IPv4 CIDR allowed to access Jenkins, the test site, and the admin dashboard. Use your current address with /32."
+  description = "Your public IPv4 address with /32, allowed to reach the protected admin routes."
   type        = string
+
+  validation {
+    condition     = can(cidrhost(var.admin_cidr, 0)) && var.admin_cidr != "0.0.0.0/0"
+    error_message = "Set admin_cidr to a specific trusted IPv4 CIDR, normally your address followed by /32."
+  }
 }
 
 variable "vpc_cidr" {
@@ -21,20 +26,55 @@ variable "vpc_cidr" {
   default     = "10.40.0.0/16"
 }
 
-variable "jenkins_instance_type" {
-  description = "EC2 size for the Jenkins controller."
+variable "image_tag" {
+  description = "Immutable ECR image tag deployed by the release script."
   type        = string
-  default     = "t3.large"
+  default     = "bootstrap"
 }
 
-variable "app_instance_type" {
-  description = "EC2 size for the test and production application servers."
+variable "app_desired_count" {
+  description = "Number of production Fargate tasks. Set to zero while provisioning secrets; use one for the live site."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.app_desired_count >= 0 && var.app_desired_count <= 2
+    error_message = "app_desired_count must be between zero and two."
+  }
+}
+
+variable "task_cpu" {
+  description = "Fargate task CPU units. 512 is one half vCPU."
+  type        = number
+  default     = 512
+}
+
+variable "task_memory" {
+  description = "Fargate task memory in MiB."
+  type        = number
+  default     = 2048
+}
+
+variable "certificate_arn" {
+  description = "Optional ACM certificate ARN for application_domain in the selected region. When set, HTTP redirects to HTTPS."
   type        = string
-  default     = "t3.small"
+  default     = ""
+}
+
+variable "application_domain" {
+  description = "Optional DNS name covered by certificate_arn and pointed to the load balancer."
+  type        = string
+  default     = ""
+}
+
+variable "rapidapi_host" {
+  description = "RapidAPI host used by the Shazam recognition integration."
+  type        = string
+  default     = "shazam.p.rapidapi.com"
 }
 
 variable "neon_project_id" {
-  description = "Neon project identifier used to describe the externally managed PostgreSQL project."
+  description = "Neon project identifier for resource tags and deployment notes."
   type        = string
   default     = "rapid-mud-44861187"
 }

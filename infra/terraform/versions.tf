@@ -15,6 +15,7 @@ provider "aws" {
   default_tags {
     tags = {
       Project   = var.project_name
+      Database  = var.neon_project_id
       ManagedBy = "Terraform"
     }
   }

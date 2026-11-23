@@ -1,49 +1,39 @@
-output "jenkins_url" {
-  description = "Jenkins URL; access is restricted to admin_cidr."
-  value       = "http://${aws_instance.jenkins.public_ip}:8080"
+output "application_url" {
+  description = "Public endpoint for the Melodex website. HTTPS is enabled when certificate_arn is configured."
+  value       = var.certificate_arn == "" ? "http://${aws_lb.application.dns_name}" : "https://${var.application_domain}"
 }
 
-output "jenkins_instance_id" {
-  description = "Instance ID for Systems Manager access to the Jenkins controller."
-  value       = aws_instance.jenkins.id
-}
-
-output "test_url" {
-  description = "Test site URL; access is restricted to admin_cidr."
-  value       = "http://${aws_instance.application["test"].public_ip}"
-}
-
-output "test_instance_id" {
-  description = "Test application instance ID for Systems Manager sessions."
-  value       = aws_instance.application["test"].id
-}
-
-output "production_url" {
-  description = "Production site URL. Add a DNS name and TLS before public release."
-  value       = "http://${aws_instance.application["production"].public_ip}"
-}
-
-output "production_instance_id" {
-  description = "Production application instance ID for Systems Manager sessions."
-  value       = aws_instance.application["production"].id
+output "load_balancer_dns_name" {
+  description = "AWS DNS name for the Application Load Balancer."
+  value       = aws_lb.application.dns_name
 }
 
 output "ecr_repository_url" {
-  description = "Private ECR repository used for the immutable application images."
+  description = "Private Amazon ECR repository used for immutable application image tags."
   value       = aws_ecr_repository.app.repository_url
 }
 
-output "rapidapi_secret_name" {
-  description = "Secrets Manager name to populate with scripts/publish-shazam-secret.ps1."
-  value       = aws_secretsmanager_secret.rapidapi.name
+output "runtime_secret_arn" {
+  description = "Secrets Manager secret populated by scripts/publish-runtime-secrets.ps1."
+  value       = aws_secretsmanager_secret.runtime.arn
 }
 
-output "database_secret_arn" {
-  description = "Secrets Manager secret to populate with Neon pooled and direct branch URLs."
-  value       = aws_secretsmanager_secret.neon_database.arn
+output "ecs_cluster_name" {
+  description = "ECS cluster name for the production service."
+  value       = aws_ecs_cluster.application.name
 }
 
-output "admin_secret_arn" {
-  description = "Secrets Manager secret for the protected catalogue monitoring page."
-  value       = aws_secretsmanager_secret.admin.arn
+output "ecs_service_name" {
+  description = "ECS production service name."
+  value       = aws_ecs_service.application.name
+}
+
+output "aws_region" {
+  description = "AWS region used by this deployment."
+  value       = var.aws_region
+}
+
+output "neon_project_id" {
+  description = "External Neon PostgreSQL project connected to this application."
+  value       = var.neon_project_id
 }
