@@ -39,7 +39,7 @@ $policy = @{
     Version = '2012-10-17'
     Statement = @(
         @{ Sid = 'EcrToken'; Effect = 'Allow'; Action = @('ecr:GetAuthorizationToken'); Resource = '*' },
-        @{ Sid = 'PushMelodexImage'; Effect = 'Allow'; Action = @('ecr:BatchCheckLayerAvailability','ecr:InitiateLayerUpload','ecr:UploadLayerPart','ecr:CompleteLayerUpload','ecr:PutImage'); Resource = "arn:aws:ecr:$region`:$accountId`:repository/melodex" },
+        @{ Sid = 'PushMelodexImage'; Effect = 'Allow'; Action = @('ecr:BatchCheckLayerAvailability','ecr:BatchGetImage','ecr:InitiateLayerUpload','ecr:UploadLayerPart','ecr:CompleteLayerUpload','ecr:PutImage'); Resource = "arn:aws:ecr:$region`:$accountId`:repository/melodex" },
         @{ Sid = 'DescribeTaskDefinition'; Effect = 'Allow'; Action = @('ecs:DescribeTaskDefinition'); Resource = '*' },
         @{ Sid = 'RegisterMelodexTaskDefinition'; Effect = 'Allow'; Action = @('ecs:RegisterTaskDefinition'); Resource = "arn:aws:ecs:$region`:$accountId`:task-definition/melodex-production:*" },
         @{ Sid = 'UpdateProductionService'; Effect = 'Allow'; Action = @('ecs:DescribeServices','ecs:UpdateService'); Resource = "arn:aws:ecs:$region`:$accountId`:service/melodex-cluster/melodex-production" },
