@@ -30,7 +30,7 @@ $trustPolicy = @{
         Action = 'sts:AssumeRoleWithWebIdentity'
         Condition = @{ StringEquals = @{
             'token.actions.githubusercontent.com:aud' = 'sts.amazonaws.com'
-            'token.actions.githubusercontent.com:sub' = 'repo:NguyenJam/Music-Recognition-and-Marketplace:ref:refs/heads/main'
+            'token.actions.githubusercontent.com:sub' = 'repo:NguyenJam@128838768/Music-Recognition-and-Marketplace@1442864783:ref:refs/heads/main'
         } }
     })
 } | ConvertTo-Json -Depth 8 -Compress
