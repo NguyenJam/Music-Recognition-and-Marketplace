@@ -15,89 +15,27 @@ import java.util.regex.Pattern;
 @Service
 public class CatalogService {
     private static final Pattern RELEASE_YEAR = Pattern.compile("\\b(?:19|20|21)\\d{2}\\b");
-    private static final String[] DISCOVERY_COVER_COLORS = {
-            "#536b72", "#8d674e", "#755c7e", "#576d4d", "#8a514b"
-    };
     private static final Set<String> FORMATS = Set.of("VINYL", "CD", "CASSETTE", "DIGITAL");
     private static final Set<String> CONDITIONS = Set.of("NEW", "LIKE_NEW", "GOOD", "FAIR", "DIGITAL");
 
     private final CatalogRepository repository;
-    private final MusicBrainzCatalogueService musicBrainz;
-
-    public CatalogService(CatalogRepository repository, MusicBrainzCatalogueService musicBrainz) {
+    public CatalogService(CatalogRepository repository) {
         this.repository = repository;
-        this.musicBrainz = musicBrainz;
     }
 
     public List<MusicRelease> search(String query, String artist, Integer fromYear,
                                      Integer toYear, String format) {
-        List<MusicRelease> matches = ensureOffers(
-                repository.search(query, artist, fromYear, toYear, format),
-                query, artist, fromYear, toYear, format);
-
-        if (fromYear == null && toYear == null && !hasText(format)) {
-            int limit = hasText(query) || hasText(artist) ? 15 : 24;
-            List<MusicBrainzCatalogueService.Recording> openMatches =
-                    repository.searchOpenCatalogue(query, artist, limit);
-            for (MusicBrainzCatalogueService.Recording recording : openMatches) {
-                long releaseId = repository.saveRecognizedTrack(recording.id(), recording.title(),
-                        recording.artist(), null, "#536b72");
-                repository.ensureDemoOffer(releaseId);
-            }
-            if (!openMatches.isEmpty()) return repository.search(query, artist, fromYear, toYear, format);
-        }
-
-        if (!matches.isEmpty() || (!hasText(query) && !hasText(artist))) return matches;
-
-        for (MusicBrainzCatalogueService.Recording recording : musicBrainz.search(query, artist)) {
-            long releaseId = repository.saveRecognizedTrack(recording.id(), recording.title(),
-                    recording.artist(), extractReleaseYear(recording.releaseDate()), "#536b72");
-            repository.ensureDemoOffer(releaseId);
-        }
         return repository.search(query, artist, fromYear, toYear, format);
-    }
-
-    private List<MusicRelease> ensureOffers(List<MusicRelease> matches, String query, String artist,
-                                            Integer fromYear, Integer toYear, String format) {
-        boolean addedDemoOffers = false;
-        for (MusicRelease release : matches) {
-            if (release.offers().isEmpty()) {
-                repository.ensureDemoOffer(release.id());
-                addedDemoOffers = true;
-            }
-        }
-        return addedDemoOffers ? repository.search(query, artist, fromYear, toYear, format) : matches;
     }
 
     public List<MusicRelease> all() {
         return repository.all();
     }
 
-    public CatalogueSearchPage searchAdvancedCatalogue(String artist, String release,
-                                                       String track, int page, int pageSize) {
+    public CatalogueSearchPage searchCatalogue(String artist, String track, int page, int pageSize) {
         int safePage = Math.max(1, Math.min(page, 100_000));
         int safeSize = Math.max(1, Math.min(pageSize, 50));
-        boolean searched = hasText(artist) || hasText(release) || hasText(track);
-        if (!searched) {
-            return new CatalogueSearchPage(List.of(), safePage, safeSize, false,
-                    repository.estimatedCanonicalEntries() == 0
-                            ? "The full metadata snapshot has not been loaded yet."
-                            : "Enter an artist, release, or track title to search the full catalogue.");
-        }
-        for (String value : List.of(nullToEmpty(artist), nullToEmpty(release), nullToEmpty(track))) {
-            if (!value.isBlank() && value.trim().length() < 3) {
-                return new CatalogueSearchPage(List.of(), safePage, safeSize, true,
-                        "Use at least three characters in each search field.");
-            }
-        }
-        if (repository.estimatedCanonicalEntries() == 0) {
-            return new CatalogueSearchPage(List.of(), safePage, safeSize, true,
-                    "The full metadata snapshot is not loaded. Use the catalogue search on the home page for sample releases.");
-        }
-        List<AdvancedCatalogueEntry> items = repository.searchAdvancedCatalogue(
-                artist, release, track, safeSize, (safePage - 1) * safeSize);
-        return new CatalogueSearchPage(items, safePage, safeSize, true,
-                items.isEmpty() ? "No matching recordings found. Try a broader search." : "");
+        return repository.searchLocalCatalogue(track, artist, safePage, safeSize);
     }
 
     public MarketplacePage searchMarketplace(String query, String artist, Integer fromYear,
@@ -137,8 +75,12 @@ public class CatalogService {
                 safeIds(releaseIds), safeIds(listingIds), normalizedSort, safePage, safeSize);
     }
 
-    public long estimatedCanonicalEntries() {
-        return repository.estimatedCanonicalEntries();
+    public long catalogueRecordCount() {
+        return repository.catalogueRecordCount();
+    }
+
+    public boolean hasActiveListings(long releaseId) {
+        return repository.hasActiveListings(releaseId);
     }
 
     public List<PurchaseRecord> purchaseHistory(String buyerName) {
@@ -178,13 +120,11 @@ public class CatalogService {
             throw new IllegalArgumentException("Recognized track details are incomplete.");
         }
         String cleanTrackId = trackId == null || trackId.isBlank() ? null : trackId.trim();
+        if (cleanTrackId != null && !cleanTrackId.startsWith("shazam:")) {
+            cleanTrackId = "shazam:" + cleanTrackId;
+        }
         Integer releaseYear = extractReleaseYear(releaseDate);
-        int colorIndex = Math.floorMod((cleanTitle + "|" + cleanArtist).toLowerCase(Locale.ROOT).hashCode(),
-                DISCOVERY_COVER_COLORS.length);
-        long releaseId = repository.saveRecognizedTrack(cleanTrackId, cleanTitle, cleanArtist,
-                releaseYear, DISCOVERY_COVER_COLORS[colorIndex]);
-        repository.ensureDemoOffer(releaseId);
-        return releaseId;
+        return repository.saveRecognizedTrack(cleanTrackId, cleanTitle, cleanArtist, releaseYear);
     }
 
     private static Integer extractReleaseYear(String releaseDate) {
@@ -244,8 +184,5 @@ public class CatalogService {
         return ids.stream().filter(id -> id != null && id > 0).distinct().limit(100).toList();
     }
 
-    private static String nullToEmpty(String value) {
-        return value == null ? "" : value;
-    }
 }
 

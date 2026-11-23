@@ -4,7 +4,7 @@ output "jenkins_url" {
 }
 
 output "jenkins_instance_id" {
-  description = "Instance ID for an interactive Systems Manager session to accept Android SDK licenses and install build packages."
+  description = "Instance ID for Systems Manager access to the Jenkins controller."
   value       = aws_instance.jenkins.id
 }
 
@@ -13,9 +13,19 @@ output "test_url" {
   value       = "http://${aws_instance.application["test"].public_ip}"
 }
 
+output "test_instance_id" {
+  description = "Test application instance ID for Systems Manager sessions."
+  value       = aws_instance.application["test"].id
+}
+
 output "production_url" {
   description = "Production site URL. Add a DNS name and TLS before public release."
   value       = "http://${aws_instance.application["production"].public_ip}"
+}
+
+output "production_instance_id" {
+  description = "Production application instance ID for Systems Manager sessions."
+  value       = aws_instance.application["production"].id
 }
 
 output "ecr_repository_url" {
@@ -28,10 +38,12 @@ output "rapidapi_secret_name" {
   value       = aws_secretsmanager_secret.rapidapi.name
 }
 
-output "database_secret_arns" {
-  description = "AWS-managed RDS administrator secret ARNs for test and production."
-  value = {
-    for environment, database in aws_db_instance.databases :
-    environment => database.master_user_secret[0].secret_arn
-  }
+output "database_secret_arn" {
+  description = "Secrets Manager secret to populate with Neon pooled and direct branch URLs."
+  value       = aws_secretsmanager_secret.neon_database.arn
+}
+
+output "admin_secret_arn" {
+  description = "Secrets Manager secret for the protected catalogue monitoring page."
+  value       = aws_secretsmanager_secret.admin.arn
 }

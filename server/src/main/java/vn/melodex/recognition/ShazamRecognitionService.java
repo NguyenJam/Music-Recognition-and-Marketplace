@@ -59,7 +59,7 @@ public class ShazamRecognitionService {
             String trackId = text(track.get("key"));
             if (trackId.isBlank()) trackId = text(track.get("id"));
             return new RecognitionResult(true, title, artist, metadata(track, "Album"),
-                    metadata(track, "Released"), trackId, null, "Track recognized.");
+                    metadata(track, "Released"), trackId, null, false, "Track recognized.");
         } catch (RuntimeException exception) {
             return RecognitionResult.unavailable(
                     "Recognition could not be completed. Check the RapidAPI key, Shazam API subscription, and server connection.");

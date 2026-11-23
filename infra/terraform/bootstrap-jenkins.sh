@@ -3,7 +3,7 @@ set -euxo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
 apt-get update
-apt-get install -y fontconfig openjdk-21-jdk docker.io awscli curl git jq snapd unzip
+apt-get install -y fontconfig openjdk-21-jdk docker.io awscli curl git jq snapd
 systemctl enable --now docker
 snap install amazon-ssm-agent --classic || true
 systemctl enable --now snap.amazon-ssm-agent.amazon-ssm-agent.service || true
@@ -16,24 +16,7 @@ echo "deb [signed-by=/etc/apt/keyrings/jenkins-keyring.asc] https://pkg.jenkins.
 apt-get update
 apt-get install -y jenkins
 
-sdk_root=/opt/android-sdk
-sdk_archive=/tmp/android-commandlinetools.zip
-install -d -m 0755 "$sdk_root/cmdline-tools/latest"
-curl -fsSL https://dl.google.com/android/repository/commandlinetools-linux-15859902_latest.zip \
-  -o "$sdk_archive"
-echo '4e4c464f145a7512b57d088ac6c278c03c9eea610886b35a5e0804e74eedf583  /tmp/android-commandlinetools.zip' \
-  | sha256sum --check --status
-unzip -q "$sdk_archive" -d /tmp/android-commandlinetools
-cp -a /tmp/android-commandlinetools/cmdline-tools/. "$sdk_root/cmdline-tools/latest/"
-chown -R jenkins:jenkins "$sdk_root"
-
 usermod -aG docker jenkins
-install -d -m 0755 /etc/systemd/system/jenkins.service.d
-cat > /etc/systemd/system/jenkins.service.d/android-sdk.conf <<'EOF'
-[Service]
-Environment="ANDROID_HOME=/opt/android-sdk"
-Environment="ANDROID_SDK_ROOT=/opt/android-sdk"
-EOF
 systemctl daemon-reload
 systemctl enable jenkins
 systemctl restart jenkins

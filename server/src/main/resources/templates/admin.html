@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="refresh" content="60">
+  <title>Catalogue monitoring — Melodex</title><script>(()=>{try{const saved=localStorage.getItem('melodex-theme');const theme=saved==='dark'||saved==='light'?saved:(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.dataset.theme=theme;document.documentElement.style.colorScheme=theme;const meta=document.querySelector('meta[name="theme-color"]');if(meta)meta.content=theme==='dark'?'#181918':'#f4f1e9';}catch(e){}})();</script><link rel="stylesheet" th:href="@{/css/site.css(v='20261123-20')}">
+</head>
+<body>
+  <header class="topbar"><a class="brand" href="/"><span class="brand-mark">m</span> melodex</a><details class="topbar-menu" open><summary class="menu-toggle" aria-label="Menu" data-i18n-aria="menu"><svg class="menu-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg><span class="sr-only" data-i18n="menu">Menu</span></summary><nav aria-label="Admin navigation"><div class="nav-links"><a href="/">Website</a><a href="/marketplace">Marketplace</a></div><div class="nav-controls"><span class="admin-label">Administrator</span><form method="post" th:action="@{/admin/logout}"><button class="admin-logout" type="submit">Sign out</button></form></div></nav></details></header>
+  <main class="admin-main">
+    <div class="admin-heading"><div><p class="eyebrow">OPERATIONS</p><h1>Catalogue monitoring</h1><p>Database size, recognition cache, catalogue sources and demo listings. This page refreshes every minute.</p></div><div class="admin-heading-actions"><a class="button button-outline" href="/admin">Refresh now</a><a class="button button-dark" href="/">Back to site</a></div></div>
+    <section class="admin-metrics" aria-label="Database summary">
+      <article><span>Catalogue records</span><strong th:text="${#numbers.formatInteger(metrics.catalogueRecords, 1, 'COMMA')}">0</strong><small>Imported, curated and Shazam-recognized tracks</small></article>
+      <article><span>Recognition cache</span><strong th:text="${metrics.cachedRecognitionRecords + ' / ' + metrics.cacheLimit}">0 / 5000</strong><small>Old disposable matches are pruned at the configured limit</small></article>
+      <article><span>Listings</span><strong th:text="${metrics.listings}">0</strong><small th:text="${metrics.demoListings + ' sample listings'}">0 sample listings</small></article>
+      <article><span>Database size</span><strong th:text="${#numbers.formatDecimal(metrics.databaseBytes / 1048576.0, 1, 1) + ' MB'}">0 MB</strong><small>PostgreSQL-reported database size</small></article>
+    </section>
+    <section class="admin-table-section" aria-label="Catalogue source information">
+      <div class="admin-table-heading"><div><h2>Catalogue source</h2><p>FMA rows are searchable metadata stored in this PostgreSQL catalogue. The FMA identifier is kept for provenance; it does not open a live song lookup. The import contains title, artist and release-year fields only, with no audio or cover art.</p></div><span>FMA metadata attribution is recorded in the project README.</span></div>
+    </section>
+    <section class="admin-table-section">
+      <div class="admin-table-heading"><div><h2>Recently added records</h2><p>Showing up to 200 newest catalogue records.</p></div><span>Demo listings are labelled in the marketplace and counted here.</span></div>
+      <div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Track / release</th><th>Source</th><th>External ID</th><th>Reference</th><th>Demo declaration</th><th>Added</th></tr></thead>
+        <tbody><tr class="admin-record-row" th:each="record : ${records}"><td data-label="Track / release"><strong th:text="${record.title}">Title</strong><small th:text="${record.artist + (record.releaseYear == null ? '' : ' · ' + record.releaseYear)}">Artist</small></td><td data-label="Source" th:text="${record.catalogueSource}">SOURCE</td><td data-label="External ID"><code th:text="${record.externalTrackId == null ? '—' : record.externalTrackId}">ID</code></td><td data-label="Reference"><a th:if="${!#strings.isEmpty(record.referenceUrl())}" th:href="${record.referenceUrl()}" target="_blank" rel="noopener" th:text="${record.referenceLabel()}">Open source reference ↗</a><span th:unless="${!#strings.isEmpty(record.referenceUrl())}">No external reference</span></td><td data-label="Demo declaration"><strong th:text="${record.demoListingCount + ' demo'}">0 demo</strong><small th:text="${record.listingCount + ' total listings'}">0 total listings</small></td><td data-label="Added" th:text="${#temporals.format(record.createdAt, 'yyyy-MM-dd HH:mm')}">Date</td></tr>
+        <tr th:if="${#lists.isEmpty(records)}"><td colspan="6">No catalogue records have been added.</td></tr></tbody>
+      </table></div>
+    </section>
+  </main>
+  <footer class="footer"><a class="brand" href="/"><span class="brand-mark">m</span> melodex</a><span>ADMINISTRATION</span></footer>
+  <script th:src="@{/js/preferences.js(v='20261123-5')}" defer></script>
+</body>
+</html>

@@ -20,8 +20,10 @@ cat > /etc/melodex/deploy.env <<'EOF'
 AWS_REGION=${aws_region}
 ECR_REGISTRY=${ecr_registry}
 DB_SECRET_ARN=${db_secret_arn}
+ADMIN_SECRET_ARN=${admin_secret_arn}
 RAPIDAPI_SECRET_ARN=${rapidapi_secret_arn}
-DB_NAME=${db_name}
+DEPLOY_ENVIRONMENT=${environment}
+NEON_PROJECT_ID=${neon_project_id}
 SHAZAM_RAPIDAPI_HOST=${rapidapi_host}
 EOF
 chmod 0600 /etc/melodex/deploy.env

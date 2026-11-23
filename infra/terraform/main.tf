@@ -1,11 +1,9 @@
 locals {
   environments = {
     test = {
-      db_name      = "melodex_test"
       subnet_index = 0
     }
     production = {
-      db_name      = "melodex_prod"
       subnet_index = 1
     }
   }
@@ -86,12 +84,6 @@ resource "aws_route_table_association" "public" {
   route_table_id = aws_route_table.public.id
 }
 
-resource "aws_db_subnet_group" "main" {
-  name        = "${var.project_name}-rds"
-  subnet_ids  = aws_subnet.private[*].id
-  description = "Private subnets for the Melodex PostgreSQL databases."
-}
-
 resource "aws_security_group" "jenkins" {
   name        = "${var.project_name}-jenkins"
   description = "Jenkins administration restricted to the configured administrator CIDR."
@@ -135,27 +127,6 @@ resource "aws_security_group" "application" {
   }
 }
 
-resource "aws_security_group" "database" {
-  name        = "${var.project_name}-postgres"
-  description = "PostgreSQL accepts traffic only from the application servers."
-  vpc_id      = aws_vpc.main.id
-
-  ingress {
-    description     = "PostgreSQL from test and production app instances"
-    from_port       = 5432
-    to_port         = 5432
-    protocol        = "tcp"
-    security_groups = [for group in aws_security_group.application : group.id]
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-}
-
 resource "aws_ecr_repository" "app" {
   name                 = var.project_name
   image_tag_mutability = "IMMUTABLE"
@@ -189,31 +160,16 @@ resource "aws_secretsmanager_secret" "rapidapi" {
   recovery_window_in_days = 7
 }
 
-resource "aws_db_instance" "databases" {
-  for_each = local.environments
+resource "aws_secretsmanager_secret" "neon_database" {
+  name                    = "${var.project_name}/neon-database-connections"
+  description             = "Neon pooled runtime and direct importer URLs for test and production branches in ${var.neon_project_id}."
+  recovery_window_in_days = 7
+}
 
-  identifier                  = "${var.project_name}-${each.key}-db"
-  engine                      = "postgres"
-  engine_version              = "17"
-  instance_class              = var.db_instance_class
-  allocated_storage           = 20
-  max_allocated_storage       = 100
-  storage_type                = "gp3"
-  storage_encrypted           = true
-  db_name                     = each.value.db_name
-  username                    = "melodex_admin"
-  manage_master_user_password = true
-  db_subnet_group_name        = aws_db_subnet_group.main.name
-  vpc_security_group_ids      = [aws_security_group.database.id]
-  publicly_accessible         = false
-  backup_retention_period     = 7
-  auto_minor_version_upgrade  = true
-  deletion_protection         = true
-  skip_final_snapshot         = false
-  final_snapshot_identifier   = "${var.project_name}-${each.key}-final-snapshot"
-  apply_immediately           = false
-
-  tags = { Name = "${var.project_name}-${each.key}-postgres" }
+resource "aws_secretsmanager_secret" "admin" {
+  name                    = "${var.project_name}/admin-credentials"
+  description             = "HTTP Basic credentials for the read-only Melodex admin dashboard."
+  recovery_window_in_days = 7
 }
 
 data "aws_iam_policy_document" "ec2_assume_role" {
@@ -309,10 +265,11 @@ resource "aws_iam_role_policy" "application_secrets" {
     Statement = [{
       Effect = "Allow"
       Action = ["secretsmanager:GetSecretValue"]
-      Resource = concat(
-        [aws_secretsmanager_secret.rapidapi.arn],
-        [for database in aws_db_instance.databases : database.master_user_secret[0].secret_arn]
-      )
+      Resource = [
+        aws_secretsmanager_secret.rapidapi.arn,
+        aws_secretsmanager_secret.neon_database.arn,
+        aws_secretsmanager_secret.admin.arn
+      ]
     }]
   })
 }
@@ -357,13 +314,17 @@ resource "aws_instance" "application" {
   user_data = templatefile("${path.module}/bootstrap-app.sh.tftpl", {
     aws_region            = var.aws_region
     ecr_registry          = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com"
-    db_secret_arn         = aws_db_instance.databases[each.key].master_user_secret[0].secret_arn
+    db_secret_arn         = aws_secretsmanager_secret.neon_database.arn
+    admin_secret_arn      = aws_secretsmanager_secret.admin.arn
+    environment           = each.key
+    neon_project_id       = var.neon_project_id
     rapidapi_secret_arn   = aws_secretsmanager_secret.rapidapi.arn
-    db_name               = each.value.db_name
     rapidapi_host         = "shazam.p.rapidapi.com"
     deploy_script_b64     = base64encode(file("${path.module}/../../scripts/deploy-ec2.sh"))
     compose_file_b64      = base64encode(file("${path.module}/../../compose.aws.yaml"))
-    nginx_config_b64      = base64encode(file("${path.module}/../nginx.conf"))
+    nginx_config_b64      = base64encode(templatefile("${path.module}/../nginx.aws.conf.tftpl", {
+      admin_cidr = var.admin_cidr
+    }))
     cloudwatch_config_b64 = base64encode(file("${path.module}/../cloudwatch-agent.json"))
   })
   user_data_replace_on_change = true

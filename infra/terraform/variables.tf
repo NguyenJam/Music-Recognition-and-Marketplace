@@ -5,13 +5,13 @@ variable "project_name" {
 }
 
 variable "aws_region" {
-  description = "AWS region for the EC2, RDS, ECR, and CloudWatch resources."
+  description = "AWS region for EC2, ECR, Secrets Manager, and CloudWatch resources."
   type        = string
   default     = "ap-southeast-1"
 }
 
 variable "admin_cidr" {
-  description = "Public IPv4 CIDR allowed to access Jenkins on port 8080 and the test site on port 80. Use your current address with /32."
+  description = "Public IPv4 CIDR allowed to access Jenkins, the test site, and the admin dashboard. Use your current address with /32."
   type        = string
 }
 
@@ -22,7 +22,7 @@ variable "vpc_cidr" {
 }
 
 variable "jenkins_instance_type" {
-  description = "EC2 size for Jenkins and the Android build SDK."
+  description = "EC2 size for the Jenkins controller."
   type        = string
   default     = "t3.large"
 }
@@ -33,8 +33,8 @@ variable "app_instance_type" {
   default     = "t3.small"
 }
 
-variable "db_instance_class" {
-  description = "RDS PostgreSQL size for each environment."
+variable "neon_project_id" {
+  description = "Neon project identifier used to describe the externally managed PostgreSQL project."
   type        = string
-  default     = "db.t4g.micro"
+  default     = "rapid-mud-44861187"
 }

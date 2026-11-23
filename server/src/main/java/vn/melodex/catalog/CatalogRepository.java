@@ -2,6 +2,7 @@ package vn.melodex.catalog;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
+import org.springframework.beans.factory.annotation.Value;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -13,48 +14,62 @@ import java.util.Map;
 @Repository
 public class CatalogRepository {
     private final JdbcTemplate jdbc;
+    private final int recognitionCacheMaxEntries;
 
-    public CatalogRepository(JdbcTemplate jdbc) {
+    public CatalogRepository(JdbcTemplate jdbc,
+                             @Value("${catalogue.recognition-cache-max-entries:5000}") int recognitionCacheMaxEntries) {
         this.jdbc = jdbc;
+        this.recognitionCacheMaxEntries = Math.max(100, recognitionCacheMaxEntries);
     }
 
     public List<MusicRelease> search(String query, String artist, Integer fromYear,
                                      Integer toYear, String format) {
-        StringBuilder sql = new StringBuilder("""
-                SELECT r.id AS release_id, r.title, r.artist, r.release_year, r.cover_color,
-                       l.id AS listing_id, l.seller, l.format, l.item_condition, l.price, l.currency,
-                       l.is_demo
-                FROM music_release r
-                LEFT JOIN music_listing l ON l.release_id = r.id AND l.status = 'AVAILABLE'
-                WHERE 1 = 1
-                """);
+        return search(query, artist, fromYear, toYear, format, 24);
+    }
+
+    private List<MusicRelease> search(String query, String artist, Integer fromYear,
+                                      Integer toYear, String format, int resultLimit) {
+        StringBuilder filters = new StringBuilder(" WHERE 1 = 1");
         List<Object> params = new ArrayList<>();
 
         if (hasText(query)) {
-            sql.append(" AND (r.title ILIKE ? OR r.artist ILIKE ?)");
+            filters.append(" AND (r.title ILIKE ? OR r.artist ILIKE ?)");
             params.add("%" + query.trim() + "%");
             params.add("%" + query.trim() + "%");
         }
         if (hasText(artist)) {
-            sql.append(" AND r.artist ILIKE ?");
+            filters.append(" AND r.artist ILIKE ?");
             params.add("%" + artist.trim() + "%");
         }
         if (fromYear != null) {
-            sql.append(" AND r.release_year >= ?");
+            filters.append(" AND r.release_year >= ?");
             params.add(fromYear);
         }
         if (toYear != null) {
-            sql.append(" AND r.release_year <= ?");
+            filters.append(" AND r.release_year <= ?");
             params.add(toYear);
         }
         if (hasText(format)) {
-            sql.append(" AND EXISTS (SELECT 1 FROM music_listing f WHERE f.release_id = r.id AND f.status = 'AVAILABLE' AND f.format = ?)");
+            filters.append(" AND EXISTS (SELECT 1 FROM music_listing f WHERE f.release_id = r.id AND f.status = 'AVAILABLE' AND f.format = ?)");
             params.add(format.trim().toUpperCase());
         }
-        sql.append(" ORDER BY r.artist, r.release_year DESC, r.title, l.id");
+        String sql = """
+                WITH selected_releases AS (
+                    SELECT r.id, r.title, r.artist, r.release_year
+                    FROM music_release r
+                """ + filters + " ORDER BY r.artist, r.release_year DESC, r.title, r.id LIMIT ?) "
+                + """
+                SELECT r.id AS release_id, r.title, r.artist, r.release_year,
+                       l.id AS listing_id, l.seller, l.format, l.item_condition, l.price, l.currency,
+                       l.is_demo
+                FROM selected_releases r
+                LEFT JOIN music_listing l ON l.release_id = r.id AND l.status = 'AVAILABLE'
+                ORDER BY r.artist, r.release_year DESC, r.title, l.id
+                """;
+        params.add(Math.max(1, Math.min(resultLimit, 200)));
 
         return jdbc.query(connection -> {
-            var statement = connection.prepareStatement(sql.toString());
+            var statement = connection.prepareStatement(sql);
             for (int index = 0; index < params.size(); index++) {
                 statement.setObject(index + 1, params.get(index));
             }
@@ -66,8 +81,7 @@ public class CatalogRepository {
                 ReleaseBuilder release = releases.computeIfAbsent(releaseId, ignored -> {
                     try {
                         return new ReleaseBuilder(releaseId, resultSet.getString("title"),
-                                resultSet.getString("artist"), resultSet.getObject("release_year", Integer.class),
-                                resultSet.getString("cover_color"));
+                                resultSet.getString("artist"), resultSet.getObject("release_year", Integer.class));
                     } catch (java.sql.SQLException exception) {
                         throw new IllegalStateException(exception);
                     }
@@ -88,7 +102,10 @@ public class CatalogRepository {
     }
 
     public long saveRecognizedTrack(String trackId, String title, String artist,
-                                    Integer releaseYear, String coverColor) {
+                                    Integer releaseYear) {
+        // Cache writes are uncommon; serializing this small section prevents two concurrent
+        // recognition results from exceeding the configured cache limit or creating duplicates.
+        jdbc.execute("SELECT pg_advisory_xact_lock(618204771)");
         Long existingId = findMatchingRelease(title, artist, releaseYear, trackId);
         if (existingId != null) {
             jdbc.update("""
@@ -100,23 +117,64 @@ public class CatalogRepository {
             return existingId;
         }
 
+        evictOldRecognitionCacheIfNeeded();
+        String source = "SHAZAM";
+
         if (hasText(trackId)) {
             return jdbc.queryForObject("""
-                    INSERT INTO music_release (external_track_id, title, artist, release_year, cover_color)
+                    INSERT INTO music_release (external_track_id, title, artist, release_year, catalogue_source)
                     VALUES (?, ?, ?, ?, ?)
                     ON CONFLICT (external_track_id) WHERE external_track_id IS NOT NULL
                     DO UPDATE SET title = EXCLUDED.title,
                                   artist = EXCLUDED.artist,
                                   release_year = COALESCE(EXCLUDED.release_year, music_release.release_year)
                     RETURNING id
-                    """, Long.class, trackId.trim(), title, artist, releaseYear, coverColor);
+                    """, Long.class, trackId.trim(), title, artist, releaseYear, source);
         }
 
         return jdbc.queryForObject("""
-                INSERT INTO music_release (title, artist, release_year, cover_color)
+                INSERT INTO music_release (title, artist, release_year, catalogue_source)
                 VALUES (?, ?, ?, ?)
                 RETURNING id
-                """, Long.class, title, artist, releaseYear, coverColor);
+                """, Long.class, title, artist, releaseYear, source);
+    }
+
+    private void evictOldRecognitionCacheIfNeeded() {
+        jdbc.update("""
+                WITH excess AS (
+                    SELECT r.id
+                    FROM music_release r
+                    WHERE r.catalogue_source = 'SHAZAM'
+                      AND NOT EXISTS (
+                          SELECT 1 FROM music_listing l
+                          WHERE l.release_id = r.id AND NOT (l.is_demo AND l.seller = 'Melodex Demo Store')
+                      )
+                      AND NOT EXISTS (
+                          SELECT 1 FROM purchase_request p
+                          JOIN music_listing l ON l.id = p.listing_id
+                          WHERE l.release_id = r.id
+                      )
+                    ORDER BY r.created_at ASC, r.id ASC
+                    LIMIT ?
+                )
+                DELETE FROM music_release r USING excess e WHERE r.id = e.id
+                """, Math.max(0, countDisposableRecognitionCache() - recognitionCacheMaxEntries + 1));
+    }
+
+    private int countDisposableRecognitionCache() {
+        Integer count = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM music_release r
+                WHERE r.catalogue_source = 'SHAZAM'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM music_listing l
+                      WHERE l.release_id = r.id AND NOT (l.is_demo AND l.seller = 'Melodex Demo Store')
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM purchase_request p JOIN music_listing l ON l.id = p.listing_id
+                      WHERE l.release_id = r.id
+                  )
+                """, Integer.class);
+        return count == null ? 0 : count;
     }
 
     private Long findMatchingRelease(String title, String artist, Integer releaseYear, String trackId) {
@@ -149,79 +207,44 @@ public class CatalogRepository {
     }
 
     public List<MusicRelease> all() {
-        return search(null, null, null, null, null);
+        return search(null, null, null, null, null, 200);
     }
 
-    public List<MusicBrainzCatalogueService.Recording> searchOpenCatalogue(String query,
-                                                                           String artist,
-                                                                           int limit) {
-        if ((!hasText(query) && !hasText(artist))
-                || (hasText(query) && query.trim().length() < 3)
-                || (hasText(artist) && artist.trim().length() < 3)) return List.of();
-        StringBuilder sql = new StringBuilder("""
-                SELECT recording_mbid, recording_name, artist_credit_name
-                FROM (
-                    SELECT DISTINCT ON (recording_mbid) recording_mbid, recording_name,
-                           artist_credit_name, score, id
-                    FROM musicbrainz_recording
-                    WHERE recording_mbid IS NOT NULL
-                      AND recording_name IS NOT NULL AND recording_name <> ''
-                      AND artist_credit_name IS NOT NULL AND artist_credit_name <> ''
-                """);
+    public CatalogueSearchPage searchLocalCatalogue(String query, String artist, int page, int pageSize) {
+        StringBuilder where = new StringBuilder(" WHERE 1 = 1");
         List<Object> params = new ArrayList<>();
         if (hasText(query)) {
-            sql.append(" AND (recording_name ILIKE ? OR artist_credit_name ILIKE ?)");
-            params.add("%" + query.trim() + "%");
+            where.append(" AND r.title ILIKE ?");
             params.add("%" + query.trim() + "%");
         }
         if (hasText(artist)) {
-            sql.append(" AND artist_credit_name ILIKE ?");
+            where.append(" AND r.artist ILIKE ?");
             params.add("%" + artist.trim() + "%");
         }
-        sql.append(" ORDER BY recording_mbid, score DESC, id) matches ORDER BY score DESC, recording_name, artist_credit_name LIMIT ?");
-        params.add(Math.max(1, Math.min(limit, 50)));
-        return jdbc.query(sql.toString(), (resultSet, rowNumber) ->
-                new MusicBrainzCatalogueService.Recording(
-                        "musicbrainz:" + resultSet.getString("recording_mbid"),
-                        resultSet.getString("recording_name"),
-                        resultSet.getString("artist_credit_name"), null), params.toArray());
-    }
-
-    public List<AdvancedCatalogueEntry> searchAdvancedCatalogue(String artist, String release,
-                                                                 String track, int limit, int offset) {
-        StringBuilder sql = new StringBuilder("""
-                SELECT recording_mbid, recording_name, artist_credit_name, release_name, score
-                FROM (
-                    SELECT DISTINCT ON (recording_mbid) recording_mbid, recording_name,
-                           artist_credit_name, release_name, score, id
-                    FROM musicbrainz_recording
-                    WHERE recording_mbid IS NOT NULL
-                      AND recording_name IS NOT NULL AND recording_name <> ''
-                      AND artist_credit_name IS NOT NULL AND artist_credit_name <> ''
-                """);
-        List<Object> params = new ArrayList<>();
-        if (hasText(artist)) {
-            sql.append(" AND artist_credit_name ILIKE ?");
-            params.add("%" + artist.trim() + "%");
-        }
-        if (hasText(release)) {
-            sql.append(" AND release_name ILIKE ?");
-            params.add("%" + release.trim() + "%");
-        }
-        if (hasText(track)) {
-            sql.append(" AND recording_name ILIKE ?");
-            params.add("%" + track.trim() + "%");
-        }
-        sql.append(" ORDER BY recording_mbid, score DESC, id) matches "
-                + "ORDER BY score DESC, recording_name, artist_credit_name LIMIT ? OFFSET ?");
-        params.add(limit);
-        params.add(offset);
-        return jdbc.query(sql.toString(), (resultSet, rowNumber) ->
-                new AdvancedCatalogueEntry(resultSet.getString("recording_mbid"),
-                        resultSet.getString("recording_name"),
-                        resultSet.getString("artist_credit_name"),
-                        resultSet.getString("release_name"), resultSet.getInt("score")),
-                params.toArray());
+        Long total = jdbc.queryForObject("SELECT COUNT(*) FROM music_release r" + where,
+                Long.class, params.toArray());
+        List<Object> pageParams = new ArrayList<>(params);
+        pageParams.add(pageSize);
+        pageParams.add((page - 1) * pageSize);
+        List<CatalogueEntry> items = jdbc.query("""
+                WITH page_releases AS (
+                    SELECT r.id, r.title, r.artist, r.release_year, r.genre, r.language, r.created_at
+                    FROM music_release r
+                """ + where + " ORDER BY r.created_at DESC, r.id DESC LIMIT ? OFFSET ?) " + """
+                SELECT r.id, r.title, r.artist, r.release_year, r.genre, r.language,
+                       COUNT(l.id) FILTER (WHERE l.status = 'AVAILABLE') AS offer_count,
+                       MIN(l.price) FILTER (WHERE l.status = 'AVAILABLE') AS lowest_offer
+                FROM page_releases r
+                LEFT JOIN music_listing l ON l.release_id = r.id
+                GROUP BY r.id, r.title, r.artist, r.release_year, r.genre, r.language, r.created_at
+                ORDER BY r.created_at DESC, r.id DESC
+                """,
+                (rs, row) -> new CatalogueEntry(rs.getLong("id"), rs.getString("title"),
+                        rs.getString("artist"),
+                        rs.getObject("release_year", Integer.class), rs.getString("genre"),
+                        rs.getString("language"), rs.getLong("offer_count"),
+                        rs.getBigDecimal("lowest_offer")), pageParams.toArray());
+        return new CatalogueSearchPage(items, page, pageSize, total == null ? 0 : total);
     }
 
     public MarketplacePage searchMarketplace(String query, String artist, Integer fromYear,
@@ -281,12 +304,15 @@ public class CatalogRepository {
             case "year-new" -> "r.release_year DESC NULLS LAST, r.artist ASC, r.title ASC, l.id";
             default -> "l.id DESC";
         };
-        String from = " FROM music_listing l JOIN music_release r ON r.id = l.release_id";
+        String from = """
+                 FROM music_listing l JOIN music_release r ON r.id = l.release_id
+                """;
         Long total = jdbc.queryForObject("SELECT COUNT(*)" + from + where,
                 Long.class, params.toArray());
         String sql = """
                 SELECT l.id AS listing_id, r.id AS release_id, r.title, r.artist,
-                       r.release_year, r.cover_color, l.seller, l.format, l.item_condition,
+                       r.release_year,
+                       l.seller, l.format, l.item_condition,
                        l.price, l.currency, l.is_demo
                 """ + from + where + " ORDER BY " + orderBy + " LIMIT ? OFFSET ?";
         List<Object> pageParams = new ArrayList<>(params);
@@ -296,7 +322,7 @@ public class CatalogRepository {
                 new MarketplaceListing(resultSet.getLong("listing_id"),
                         resultSet.getLong("release_id"), resultSet.getString("title"),
                         resultSet.getString("artist"), resultSet.getObject("release_year", Integer.class),
-                        resultSet.getString("cover_color"), resultSet.getString("seller"),
+                        resultSet.getString("seller"),
                         resultSet.getString("format"), resultSet.getString("item_condition"),
                         resultSet.getBigDecimal("price"), resultSet.getString("currency").trim(),
                         resultSet.getBoolean("is_demo")), pageParams.toArray());
@@ -324,12 +350,9 @@ public class CatalogRepository {
                 resultSet.getTimestamp("created_at").toInstant()), buyerName);
     }
 
-    public long estimatedCanonicalEntries() {
-        Long estimate = jdbc.queryForObject("""
-                SELECT GREATEST(reltuples::BIGINT, 0)
-                FROM pg_class WHERE oid = 'musicbrainz_recording'::regclass
-                """, Long.class);
-        return estimate == null ? 0 : estimate;
+    public long catalogueRecordCount() {
+        Long count = jdbc.queryForObject("SELECT COUNT(*) FROM music_release", Long.class);
+        return count == null ? 0 : count;
     }
 
     private static void appendIdFilter(StringBuilder where, List<Object> params,
@@ -349,12 +372,12 @@ public class CatalogRepository {
                 """, Long.class, releaseId, seller, format, condition, price);
     }
 
-    public void ensureDemoOffer(long releaseId) {
-        jdbc.update("""
-                INSERT INTO music_listing (release_id, seller, format, item_condition, price, currency, is_demo)
-                VALUES (?, 'Melodex Demo Store', 'DIGITAL', 'DIGITAL', 99000, 'VND', TRUE)
-                ON CONFLICT (release_id) WHERE seller = 'Melodex Demo Store' DO NOTHING
-                """, releaseId);
+    public boolean hasActiveListings(long releaseId) {
+        Integer count = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM music_listing
+                WHERE release_id = ? AND status = 'AVAILABLE'
+                """, Integer.class, releaseId);
+        return count != null && count > 0;
     }
 
     public boolean releaseExists(long releaseId) {
@@ -377,12 +400,6 @@ public class CatalogRepository {
                 """, Long.class, listingId, buyerName);
     }
 
-    public boolean listingIsAvailable(long listingId) {
-        Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM music_listing WHERE id = ? AND status = 'AVAILABLE'",
-                Integer.class, listingId);
-        return count != null && count > 0;
-    }
-
     private static boolean hasText(String value) {
         return value != null && !value.isBlank();
     }
@@ -392,19 +409,43 @@ public class CatalogRepository {
         private final String title;
         private final String artist;
         private final Integer releaseYear;
-        private final String coverColor;
         private final List<Offer> offers = new ArrayList<>();
 
-        private ReleaseBuilder(long id, String title, String artist, Integer releaseYear, String coverColor) {
+        private ReleaseBuilder(long id, String title, String artist, Integer releaseYear) {
             this.id = id;
             this.title = title;
             this.artist = artist;
             this.releaseYear = releaseYear;
-            this.coverColor = coverColor;
         }
 
         private MusicRelease build() {
-            return new MusicRelease(id, title, artist, releaseYear, coverColor, List.copyOf(offers));
+            return new MusicRelease(id, title, artist, releaseYear, List.copyOf(offers));
         }
+    }
+
+    public List<AdminRecord> adminRecords(int limit) {
+        return jdbc.query("""
+                SELECT r.id, r.title, r.artist, r.release_year, r.external_track_id,
+                       r.catalogue_source, r.created_at,
+                       COUNT(l.id) AS listing_count,
+                       COUNT(l.id) FILTER (WHERE l.is_demo) AS demo_listing_count
+                FROM music_release r LEFT JOIN music_listing l ON l.release_id = r.id
+                GROUP BY r.id
+                ORDER BY r.created_at DESC, r.id DESC LIMIT ?
+                """, (rs, row) -> new AdminRecord(rs.getLong("id"), rs.getString("title"),
+                rs.getString("artist"), rs.getObject("release_year", Integer.class),
+                rs.getString("external_track_id"), rs.getString("catalogue_source"),
+                rs.getTimestamp("created_at").toInstant(),
+                rs.getLong("listing_count"), rs.getLong("demo_listing_count")), limit);
+    }
+
+    public AdminMetrics adminMetrics() {
+        long cacheCount = countDisposableRecognitionCache();
+        Long listingCount = jdbc.queryForObject("SELECT COUNT(*) FROM music_listing", Long.class);
+        Long demoCount = jdbc.queryForObject("SELECT COUNT(*) FROM music_listing WHERE is_demo", Long.class);
+        Long databaseBytes = jdbc.queryForObject("SELECT pg_database_size(current_database())", Long.class);
+        return new AdminMetrics(catalogueRecordCount(), cacheCount,
+                recognitionCacheMaxEntries, listingCount == null ? 0 : listingCount,
+                demoCount == null ? 0 : demoCount, databaseBytes == null ? 0 : databaseBytes);
     }
 }

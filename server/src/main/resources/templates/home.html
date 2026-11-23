@@ -1,93 +1,101 @@
 <!doctype html>
 <html lang="en" xmlns:th="http://www.thymeleaf.org">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#f4f1e9">
-  <title>Melodex — find the music behind the moment</title>
-  <link rel="stylesheet" th:href="@{/css/site.css}">
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f4f1e9"><title>Melodex — find the music behind the moment</title>
+  <script>(()=>{try{const saved=localStorage.getItem('melodex-theme');const theme=saved==='dark'||saved==='light'?saved:(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.dataset.theme=theme;document.documentElement.style.colorScheme=theme;const meta=document.querySelector('meta[name="theme-color"]');if(meta)meta.content=theme==='dark'?'#181918':'#f4f1e9';}catch(e){}})();</script>
+  <link rel="stylesheet" th:href="@{/css/site.css(v='20261123-20')}">
 </head>
 <body>
   <header class="topbar">
     <a class="brand" href="/" aria-label="Melodex home"><span class="brand-mark">m</span> melodex</a>
-    <nav aria-label="Main navigation"><a href="#catalogue" data-i18n="discover">Discover</a><a href="/search">Advanced search</a><a href="/marketplace" class="nav-market">Shop records <span data-cart-count class="nav-count">0</span></a><a href="#recognize" data-i18n="identify">Identify a track</a><a class="nav-sell" href="/sell"><span data-i18n="sellRecord">List a record</span> <span aria-hidden="true">↗</span></a><select id="language-select" class="language-select" aria-label="Language and currency"><option value="en-US">English (US) · USD</option><option value="en-GB">English (UK) · GBP</option><option value="vi-VN">Tiếng Việt · VND</option><option value="es-ES">Español · EUR</option><option value="fr-FR">Français · EUR</option><option value="ja-JP">日本語 · JPY</option><option value="ko-KR">한국어 · KRW</option><option value="zh-CN">简体中文 · CNY</option></select><button id="theme-toggle" class="theme-toggle" type="button" aria-pressed="false"><span aria-hidden="true">◐</span> <span data-i18n="darkMode">Dark mode</span></button></nav>
+    <details class="topbar-menu" open>
+      <summary class="menu-toggle" aria-label="Menu" data-i18n-aria="menu"><svg class="menu-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg><span class="sr-only" data-i18n="menu">Menu</span></summary>
+      <nav aria-label="Main navigation" data-i18n-aria="mainNavigation">
+        <div class="nav-links">
+          <a href="/catalogue" data-i18n="trackCatalogueNav">Track catalogue</a>
+          <a href="/marketplace" class="nav-market"><span data-i18n="shopRecords">Shop records</span></a>
+          <a href="/#listen" data-i18n="identify">Identify a track</a>
+          <a class="nav-sell" href="/sell"><span data-i18n="sellRecord">List a record</span> <span aria-hidden="true">↗</span></a>
+        </div>
+      <div class="nav-controls">
+        <div class="language-control">
+          <svg class="language-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>
+          <button id="language-select" class="language-select" type="button" aria-label="Language and currency" aria-haspopup="listbox" aria-expanded="false" aria-controls="language-options" data-i18n-aria="languageCurrency">
+            <span class="language-current">English (US) · USD</span>
+            <svg class="language-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg>
+          </button>
+          <div id="language-options" class="language-options" role="listbox" aria-label="Language and currency" data-i18n-aria="languageCurrency" hidden>
+            <button class="language-option" type="button" role="option" tabindex="-1" data-locale-option="en-US" aria-selected="true">English (US) · USD</button>
+            <button class="language-option" type="button" role="option" tabindex="-1" data-locale-option="en-GB" aria-selected="false">English (UK) · GBP</button>
+            <button class="language-option" type="button" role="option" tabindex="-1" data-locale-option="vi-VN" aria-selected="false">Tiếng Việt · VND</button>
+            <button class="language-option" type="button" role="option" tabindex="-1" data-locale-option="es-ES" aria-selected="false">Español · EUR</button>
+            <button class="language-option" type="button" role="option" tabindex="-1" data-locale-option="fr-FR" aria-selected="false">Français · EUR</button>
+            <button class="language-option" type="button" role="option" tabindex="-1" data-locale-option="ja-JP" aria-selected="false">日本語 · JPY</button>
+            <button class="language-option" type="button" role="option" tabindex="-1" data-locale-option="ko-KR" aria-selected="false">한국어 · KRW</button>
+            <button class="language-option" type="button" role="option" tabindex="-1" data-locale-option="zh-CN" aria-selected="false">简体中文 · CNY</button>
+          </div>
+        </div>
+        <button id="theme-toggle" class="theme-toggle" type="button" aria-pressed="false" aria-label="Dark mode" data-i18n-aria="darkMode"><svg class="theme-icon theme-icon-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.2 15.1A8.4 8.4 0 0 1 8.9 3.8 8.5 8.5 0 1 0 20.2 15.1Z"/></svg><svg class="theme-icon theme-icon-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42"/></svg><span class="sr-only theme-toggle-label" data-i18n="darkMode">Dark mode</span></button>
+      </div>
+      </nav>
+    </details>
   </header>
-
-  <main>
-    <section class="hero">
+  <main class="home-main">
+    <section class="hero hero-home">
       <div class="hero-copy">
         <p class="eyebrow" data-i18n="heroEyebrow">HEAR IT. FIND IT. KEEP IT.</p>
         <h1><span data-i18n="heroLine1">Music finds</span><br><em data-i18n="heroLine2">its way back.</em></h1>
         <p class="hero-intro" data-i18n="heroIntro">Recognize a track from a short sample, then explore releases and listings in one place.</p>
-        <a class="button button-dark" href="#recognize"><span data-i18n="identifySong">Identify a song</span> <span aria-hidden="true">↓</span></a>
+        <div class="hero-actions"><a class="button button-dark" href="#listen"><span data-i18n="identifySong">Identify a song</span> <span aria-hidden="true">↗</span></a><a class="button button-outline" href="/catalogue" data-i18n="browseCatalogue">Browse catalogue</a></div>
+        <div class="home-stat-row"><div><strong th:text="${#numbers.formatInteger(catalogueCount, 1, 'COMMA')}">0</strong><span data-i18n="recordingsToSearch">known tracks</span></div><div><strong th:text="${#numbers.formatInteger(offerCount, 1, 'COMMA')}">0</strong><span data-i18n="activeMarketplaceListings">available listings</span></div></div>
       </div>
-      <div class="hero-art" aria-label="Abstract illustration of a record and sound waves" role="img">
-        <div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><div class="record"><div class="record-label"><span>side<br>A</span></div></div>
-        <span class="hero-note note-one">♪</span><span class="hero-note note-two">♫</span><span class="hero-small">SOUND<br>TO SHELF</span>
-      </div>
-      <div class="hero-foot"><span data-i18n="heroFoot">DISCOVER SOMETHING FAMILIAR</span><span>01 / LISTEN</span></div>
+      <div class="hero-art" aria-label="Abstract illustration of a record and sound waves" role="img"><div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><div class="record"><div class="record-label"><span class="record-label-brand">melodex</span><i></i></div></div><span class="hero-note note-one">♪</span><span class="hero-note note-two">♫</span><span class="hero-small" data-i18n="heroAnnotation">MUSIC TO SHELF</span></div>
+      <div class="hero-foot"><span data-i18n="heroFoot">DISCOVER SOMETHING FAMILIAR</span><span data-i18n="heroChapter">01 / LISTEN</span></div>
     </section>
 
-    <div class="notice notice-success" th:if="${notice}" th:text="${notice}"></div>
-    <div class="notice notice-error" th:if="${error}" th:text="${error}"></div>
-
-    <section id="recognize" class="recognition-section">
-      <div class="section-heading">
-        <div><p class="eyebrow" data-i18n="recognitionEyebrow">A FEW SECONDS IS ENOUGH</p><h2 data-i18n="recognitionTitle">What’s that song?</h2></div>
-        <p data-i18n="recognitionIntro">Upload a short clip or record a sample from your browser. We’ll look for a match and bring you back to the catalogue.</p>
-      </div>
+    <section class="recognition-section home-recognition" id="listen">
+      <div class="section-heading"><div><p class="eyebrow" data-i18n="recognitionEyebrow">A FEW SECONDS IS ENOUGH</p><h2 data-i18n="recognitionTitle">What’s that song?</h2></div><p data-i18n="recognitionIntro">Upload a short clip or record a sample from your browser. We’ll look for a match.</p></div>
       <form id="recognition-form" class="recognition-box">
-        <div class="recognition-icon" aria-hidden="true">♫</div>
-        <div class="recognition-copy"><strong data-i18n="startSample">Start with a sample</strong><span data-i18n="sampleHint">Use a clear 5–8 second clip. The recording is not saved; recognized track details are added to the catalogue.</span></div>
+        <div class="recognition-icon" aria-hidden="true">♫</div><div class="recognition-copy"><strong data-i18n="startSample">Start with a sample</strong><span data-i18n="sampleHint">Use a clear 5–8 second clip. Audio is used to identify the track.</span></div>
         <label class="button button-outline file-button" id="file-button"><span id="file-button-label" data-i18n="chooseAudio">Choose audio</span><input type="file" name="file" accept="audio/*" required aria-describedby="file-selection"></label>
         <button class="button button-red" id="record-button" type="button"><span data-i18n="recordAudio">Record 8 seconds</span> <span aria-hidden="true">●</span></button>
         <button class="button button-dark recognize-submit" type="submit"><span data-i18n="findTrack">Find track</span> <span aria-hidden="true">↗</span></button>
-        <div class="file-selection" id="file-selection" role="status" aria-live="polite" hidden>
-          <span class="file-selection-icon" aria-hidden="true">✓</span>
-          <div class="file-selection-copy"><strong id="selected-audio-name"></strong><span id="selected-audio-details"></span></div>
-          <button type="button" id="clear-audio" aria-label="Remove selected audio" data-i18n="remove">Remove</button>
-        </div>
+        <div class="file-selection" id="file-selection" role="status" aria-live="polite" hidden><span class="file-selection-icon" aria-hidden="true">✓</span><div class="file-selection-copy"><strong id="selected-audio-name"></strong><span id="selected-audio-details"></span></div><button type="button" id="clear-audio" aria-label="Remove selected audio" data-i18n="remove">Remove</button></div>
         <div id="recognition-result" class="recognition-result" role="status" aria-live="polite"></div>
       </form>
     </section>
 
-    <section id="catalogue" class="catalogue-section">
-      <div class="section-heading catalogue-heading">
-        <div><p class="eyebrow" data-i18n="catalogueEyebrow">THE CATALOGUE</p><h2 data-i18n="catalogueTitle">Follow the sound.</h2></div>
-        <div class="catalogue-head-actions"><span class="catalogue-count"><strong th:text="${#numbers.formatInteger(catalogueEstimate, 1, 'COMMA')}">32,000,000</strong><small>indexed recordings</small></span><a href="/search" class="text-action">Advanced search ↗</a><a href="/marketplace" class="text-action">Shop available items ↗</a></div>
-      </div>
-      <form class="filter-panel" method="get" action="/">
-        <label class="filter-search"><span data-i18n="searchLabel">Search by title or artist</span><input type="search" name="query" data-i18n-placeholder="searchPlaceholder" placeholder="Try a title or artist" th:value="${query}"></label>
-        <label><span data-i18n="artistLabel">Artist</span><input type="text" name="artist" data-i18n-placeholder="artistPlaceholder" placeholder="Any artist" th:value="${artist}"></label>
-        <label><span data-i18n="fromYear">From year</span><input type="number" min="1000" max="2100" name="fromYear" data-i18n-placeholder="any" placeholder="Any" th:value="${fromYear}"></label>
-        <label><span data-i18n="toYear">To year</span><input type="number" min="1000" max="2100" name="toYear" data-i18n-placeholder="any" placeholder="Any" th:value="${toYear}"></label>
-        <label><span data-i18n="format">Format</span><select name="format"><option value="" data-i18n="allFormats">All formats</option><option th:each="itemFormat : ${formats}" th:value="${itemFormat}" th:text="${#strings.capitalize(#strings.toLowerCase(itemFormat))}" th:selected="${format == itemFormat}"></option></select></label>
-        <div class="filter-actions"><button class="button button-dark" type="submit" data-i18n="filter">Filter</button><a class="clear-link" href="/" data-i18n="clear">Clear</a></div>
-      </form>
-
-      <div class="release-grid" th:if="${!#lists.isEmpty(items)}">
-        <article class="release-card" th:each="release : ${items}">
-          <div class="cover-art" th:style="|--cover: ${release.coverColor}|">
-            <span class="cover-index" th:text="'MX-' + ${release.id}">MX-01</span><span class="cover-title" th:text="${release.title}">Release title</span>
-            <span class="cover-disc" aria-hidden="true"></span><span class="cover-footer">MELODEX / RELEASE</span>
-          </div>
-          <div class="release-meta"><div><h3 th:text="${release.title}">Release</h3><p><span th:text="${release.artist}">Artist</span> · <span th:if="${release.releaseYear != null}" th:text="${release.releaseYear}">2022</span><span th:unless="${release.releaseYear != null}" data-i18n="unknownYear">Year unknown</span></p><button type="button" class="want-toggle" th:attr="data-want-id=${'release-' + release.id},data-release-id=${release.id},data-title=${release.title},data-artist=${release.artist}">♡ <span>Wantlist</span></button></div><span class="offer-count" data-offer-count th:attr="data-count=${#lists.size(release.offers)}" th:text="${#lists.size(release.offers) + ' offers'}">0 offers</span></div>
-          <div class="offer-list" th:if="${!#lists.isEmpty(release.offers)}">
-            <div class="offer" th:each="offer : ${release.offers}">
-              <div><strong th:text="${#strings.capitalize(#strings.toLowerCase(offer.format))}">Vinyl</strong><span class="demo-badge" th:if="${offer.demo}" data-i18n="demoOffer">Demo offer</span><span th:text="${(offer.condition == 'LIKE_NEW' ? 'Like new' : #strings.capitalize(#strings.toLowerCase(offer.condition))) + ' · ' + offer.seller}">Condition · Seller</span></div>
-              <div class="offer-action"><b class="localized-price" th:attr="data-price-vnd=${offer.price}" th:text="|${offer.price} ${offer.currency}|">0 VND</b><button type="button" class="request-button cart-add" th:attr="data-listing-id=${offer.id},data-release-id=${release.id},data-title=${release.title},data-artist=${release.artist},data-format=${offer.format},data-condition=${offer.condition},data-price-vnd=${offer.price},data-currency=${offer.currency},data-seller=${offer.seller}">Add to cart</button></div>
-            </div>
-          </div>
-          <p class="no-offers" th:if="${#lists.isEmpty(release.offers)}" data-i18n="noOffers">No offers yet. Be the first to list this release.</p>
+    <section class="home-catalogue">
+      <div class="section-heading"><div><p class="eyebrow" data-i18n="catalogueEyebrow">THE CATALOGUE</p><h2 data-i18n="catalogueTitle">Follow the sound.</h2><p class="home-section-note"><span th:text="${#numbers.formatInteger(catalogueCount, 1, 'COMMA')}">0</span> <span data-i18n="catalogueCountSuffix">known tracks in the Melodex catalogue.</span></p></div><a class="button button-outline" href="/catalogue" data-i18n="searchTrackCatalogue">Search track catalogue</a></div>
+      <div class="home-track-grid" th:if="${!#lists.isEmpty(cataloguePreview)}">
+        <article class="home-track-card" th:each="item, stat : ${cataloguePreview}">
+          <div class="home-track-art" th:classappend="${'tone-' + (stat.index % 5)}" aria-hidden="true"><span class="home-track-disc"></span><span class="home-track-number" th:text="${#numbers.formatInteger(stat.index + 1, 2)}">01</span><span class="home-track-glyph">♫</span></div>
+          <div class="home-track-meta"><div><h3 th:text="${item.title}">Track title</h3><p><span th:text="${item.artist}">Artist</span><span th:if="${item.releaseYear != null}" th:text="' · ' + ${item.releaseYear}"> · 2022</span></p><p class="home-track-tags" th:if="${item.genre != null or item.language != null}"><span th:if="${item.genre != null}" th:text="${item.genre}">Pop</span><span th:if="${item.genre != null and item.language != null}"> · </span><span th:if="${item.language != null}" th:text="${item.language}">Japanese</span></p></div><span class="home-track-offers" th:if="${item.offerCount > 0}" th:text="${item.offerCount}">1</span></div>
+          <p class="home-track-status" th:if="${item.offerCount == 0}" data-i18n="noActiveOffer">No active seller offer</p>
+          <p class="home-track-status" th:if="${item.offerCount > 0}"><span th:text="${item.offerCount}">1</span> <span th:if="${item.offerCount == 1}" data-i18n="activeOffer">active offer</span><span th:if="${item.offerCount != 1}" data-i18n="activeOffers">active offers</span><span th:if="${item.lowestOffer != null}"> · <b class="localized-price" th:attr="data-price-vnd=${item.lowestOffer}" th:text="${#numbers.formatInteger(item.lowestOffer, 1, 'COMMA') + ' VND'}">0 VND</b></span></p>
+          <form class="home-track-link" method="post" action="/catalogue/search"><input type="hidden" name="track" th:value="${item.title}"><input type="hidden" name="artist" th:value="${item.artist}"><button type="submit"><span data-i18n="seeRelease">View track</span> <span aria-hidden="true">↗</span></button></form>
         </article>
       </div>
-      <div class="empty-state" th:if="${#lists.isEmpty(items)}"><span>♪</span><h3 data-i18n="noReleases">No releases found</h3><p data-i18n="emptyHint">Try a wider year range or clear a filter.</p><a href="/" data-i18n="seeCatalogue">See the full catalogue</a></div>
-      <p class="demo-note"><span data-i18n="demoNote">Demo offers use sample prices and do not represent real inventory. Reference exchange rates are rounded for display.</span> <span id="rate-note"></span><span class="source-note" data-i18n="catalogueSource">A local miss also searches MusicBrainz, a free metadata catalogue. It is separate from Shazam’s recognition database.</span></p>
+      <div class="empty-state home-empty" th:if="${#lists.isEmpty(cataloguePreview)}"><span>♫</span><h3 data-i18n="noCatalogueMatches">No catalogue matches</h3><p data-i18n="homeCatalogueEmpty">Recognized tracks will appear here.</p></div>
     </section>
-  </main>
 
-  <footer class="footer"><a class="brand" href="/"><span class="brand-mark">m</span> melodex</a><span data-i18n="footerTagline">Find the track. Explore the release.</span><span>DEMO CATALOGUE · 2026</span></footer>
-  <script th:src="@{/js/site.js}" defer></script>
+    <section class="home-market">
+      <div class="home-market-heading"><div><p class="eyebrow" data-i18n="marketEyebrow">MELODEX MARKETPLACE</p><h2 data-i18n="marketTitle">Find your next record.</h2><p data-i18n="marketIntro">Find a track in the catalogue and explore offers from sellers.</p></div><a class="button button-dark" href="/marketplace/offers"><span data-i18n="seeAllListings">See all listings</span> <span aria-hidden="true">↗</span></a></div>
+      <div class="home-offer-grid" th:if="${!#lists.isEmpty(offerPreview)}">
+        <article class="home-offer-card" th:each="listing, stat : ${offerPreview}">
+          <div class="home-offer-mark" th:classappend="${'tone-' + (stat.index % 5)}" aria-hidden="true"><span class="home-offer-disc"></span><span class="home-offer-format" th:text="${listing.format}">VINYL</span><strong th:text="${listing.title}">Release title</strong></div>
+          <div class="home-offer-details"><div><h3 th:text="${listing.title}">Release title</h3><p th:text="${listing.artist + (listing.releaseYear == null ? '' : ' · ' + listing.releaseYear)}">Artist · 2022</p></div><b class="localized-price" th:attr="data-price-vnd=${listing.price}" th:text="${#numbers.formatInteger(listing.price, 1, 'COMMA') + ' VND'}">0 VND</b></div>
+          <div class="home-offer-foot"><span><span data-i18n="seller">Seller</span> · <strong th:text="${listing.seller}">Seller name</strong></span><form method="post" action="/marketplace/search"><input type="hidden" name="view" value="offers"><input type="hidden" name="query" th:value="${listing.title}"><input type="hidden" name="artist" th:value="${listing.artist}"><button type="submit" data-i18n="viewOffer">View offer</button></form></div>
+        </article>
+      </div>
+      <div class="empty-state home-empty home-offers-empty" th:if="${#lists.isEmpty(offerPreview)}"><span>♫</span><h3 data-i18n="noOffers">No listings yet.</h3><p data-i18n="homeOffersEmpty">You can still explore the complete track catalogue.</p><a href="/sell" data-i18n="listRelease">List a release</a></div>
+    </section>
+    <section class="home-paths" aria-label="Explore Melodex"><a class="home-path home-path-recognize" href="#listen"><span class="path-number">01</span><span class="path-glyph">♫</span><strong data-i18n="identifySong">Identify a song</strong><span data-i18n="recognitionIntro">Upload a short clip or record a sample to find a track.</span><b aria-hidden="true">↗</b></a><a class="home-path home-path-catalogue" href="/catalogue"><span class="path-number">02</span><span class="path-glyph">◉</span><strong data-i18n="trackCatalogueNav">Track catalogue</strong><span><b th:text="${#numbers.formatInteger(catalogueCount, 1, 'COMMA')}">0</b> <span data-i18n="recordingsToSearch">known tracks</span></span><b aria-hidden="true">↗</b></a><a class="home-path home-path-market" href="/marketplace"><span class="path-number">03</span><span class="path-glyph">↗</span><strong data-i18n="shopRecords">Shop records</strong><span data-i18n="shopAvailableHint">Browse records offered by sellers.</span><b aria-hidden="true">↗</b></a></section>
+  </main>
+  <footer class="footer"><a class="brand" href="/"><span class="brand-mark">m</span> melodex</a><span data-i18n="footerTagline">Find the track. Explore the release.</span><a href="/admin" data-i18n="admin">Admin</a></footer>
+  <script th:src="@{/js/i18n.js(v='20261123-4')}" defer></script>
+  <script th:src="@{/js/preferences.js(v='20261123-5')}" defer></script>
+  <script th:src="@{/js/site.js(v='20261123-3')}" defer></script>
 </body>
 </html>
-

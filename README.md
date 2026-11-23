@@ -1,98 +1,59 @@
 # Melodex
 
-Melodex is a Java music discovery and marketplace prototype with a Spring Boot website/API and a native Java Android app. Both clients use the same PostgreSQL catalogue and recognition endpoint. The catalogue starts with demonstration releases; successful Shazam matches and MusicBrainz search results are saved as searchable track metadata. Each imported or recognized release receives a clearly marked fictional demo offer, so the prototype does not show a blank marketplace card. Audio recordings are not saved.
+Melodex is a Java music discovery and marketplace website built with Spring Boot. Visitors can identify tracks from a browser audio sample, explore the catalogue, and browse seller listings. The responsive website is designed for desktop and mobile screens.
 
-The website and Android app include light/dark themes and English (US), English (UK), Vietnamese, Spanish, French, Japanese, Korean, and Simplified Chinese settings. Prices are entered and stored in VND, then converted using Frankfurter reference rates and rounded to whole currency units for display. This is for browsing only; requests do not take payment.
+The catalogue is stored in Neon PostgreSQL and includes the migrated FMA metadata snapshot, curated records, and tracks identified with Shazam. Searches read the database; the website does not query an external catalogue source. Recognition adds track metadata, while uploaded or recorded audio is not stored. Seller listings and buyer requests are stored separately, so a catalogue track does not automatically represent stock for sale.
 
-## Catalogue and buyer tools
+## Features
 
-The website separates the large recording catalogue from the smaller set of marketplace listings. **Advanced search** at `/search` searches the local MusicBrainz snapshot by artist, track title, or release title. **Shop records** at `/marketplace` searches actual available listings and supports format, condition, year, price, seller, and text filters, along with price, artist, title, date, and year sorting. Search results are paginated. Genre, country, and barcode filters are not shown because those fields are not present in the imported snapshot.
+- Identify music from an audio clip or an eight-second browser recording.
+- Search known tracks by title and artist, with release-year and format filters where offers exist.
+- Browse seller offers separately from the track catalogue; filter and sort by title, artist, seller, format, condition, year, and price.
+- Use browser wantlists, collections, saved searches, cart, buyer settings, and purchase requests.
+- Use English, Vietnamese, Spanish, French, Japanese, Korean, and Simplified Chinese, with rounded display currency conversion from VND.
+- Change light and dark appearance on the website.
+- View source IDs, external references, demo declarations, listing counts, cache capacity, and database size in the protected `/admin` dashboard.
 
-Visitors can save catalogue recordings to a browser-local wantlist, put available offers in a browser-local cart, and submit a demo purchase request. The selected listing is then marked as requested and appears in the purchase history under the buyer name saved in Buyer Settings. Demo offers are fictional and visibly labelled; new catalogue matches can receive a demo digital offer to make the browse-to-cart flow testable. There are no buyer accounts, payment processing, seller payouts, or shipping arrangements.
+Catalogue entries and seller listings are stored separately; a track can exist without an offer. Buyer requests are recorded for the seller workflow.
 
 ## Project layout
 
-- `server/` — Spring Boot website, JSON API, catalogue, and Shazam recognition integration.
-- `android-app/` — native Android client written in Java.
-- `Jenkinsfile` and `scripts/` — CI/CD pipeline and AWS Systems Manager deployment helper.
-- `Dockerfile`, `compose.yaml`, and `compose.aws.yaml` — local and EC2 container definitions; NGINX is the web entry point.
-- `infra/terraform/` — AWS network, EC2, RDS PostgreSQL, ECR, IAM, Secrets Manager, and CloudWatch resources.
-- `server/build/libs/` in the ZIP — a prebuilt server JAR ready for Docker Compose; `artifacts/` contains the Android debug APK.
+- `server/` — Spring Boot website, API, Shazam integration, database access, and page templates.
+- `compose.yaml`, `Dockerfile`, and `infra/nginx.conf` — local website deployment using Docker Compose and NGINX, with PostgreSQL hosted by Neon.
+- `Jenkinsfile` — Jenkins continuous integration: checks the Gradle project, builds the runnable JAR, and archives it.
+- `scripts/` — first-run Neon setup and the one-command local launcher.
+- `infra/terraform/` and `compose.aws.yaml` — optional AWS deployment configuration. Applying it creates chargeable resources; it is not needed for local development.
 
-## Local development
+## Local setup
 
-Install JDK 21, Android SDK 36, and Docker Desktop with Docker Compose. The private archive contains `application-private.properties`; on a fresh GitHub checkout, copy `application-private.properties.example` to that name and set the RapidAPI key. The private file is ignored by Git and excluded from Docker build contexts.
-
-The ZIP includes a prebuilt server JAR at the path Docker expects. This command rebuilds it if needed, then starts the Compose stack:
+Install Docker Desktop with its Linux container engine. Clone the project, open PowerShell in its folder, and run:
 
 ```powershell
-.\gradlew.bat :server:bootJar
-docker compose up --build
+.\scripts\run.ps1
 ```
 
-Open <http://localhost:8080>. Compose starts PostgreSQL, the Java service, and NGINX. To run Java directly from the host, start only the database with `docker compose up -d db`, then run `.\gradlew.bat :server:bootRun`.
+On the first run, the setup asks for the pooled PostgreSQL connection URI from Neon’s **Connect → Pooled connection** panel. The input is hidden and the script writes the connection to `.env`, which is ignored by Git. The URI should belong to a database role with permission to create the application schema and read/write its tables. Each teammate enters the same shared application-role connection once on their own computer. Do not commit `.env` or send the database owner’s credentials in the repository.
 
-To build the Android APK:
+After setup, the launcher verifies the Compose configuration, builds the Java server inside Docker, and starts the web application and NGINX. Open <http://localhost:8080>. Later runs reuse the local `.env` and do not ask for the Neon connection again. To start manually after setup, use `docker compose up --build`.
 
-```powershell
-.\gradlew.bat :android-app:app:assembleDebug
-```
+The database lives in Neon, not in a local PostgreSQL container. Copies of the site configured with the same Neon connection read and write the same cloud records: recognized track metadata, seller listings, and purchase requests appear to the other users after refresh. Browser-only items such as saved searches, cart contents, collection, and wantlist remain on the browser that created them. Keep `.env`, connection URLs, the Shazam RapidAPI key, and administrator credentials out of Git. Optional Shazam and admin settings can be added to `.env` on each machine.
 
-The APK is written to `android-app/app/build/outputs/apk/debug/app-debug.apk`. The app defaults to `http://10.0.2.2:8080` for an Android emulator. For a physical phone, set `API_BASE_URL` in `gradle.properties` to the computer's LAN address.
+On startup, Spring creates the current application tables and seeds the example records. The shared Neon database has already been populated with 106,639 catalogue records, 8 seller listings, and 3 purchase requests. It contains metadata only; no audio or cover art is imported. The catalogue snapshot includes FMA metadata, licensed under CC BY 4.0, alongside curated and recognized tracks.
 
-## CI/CD flow
+## Database and deployment
 
-GitHub remains the source repository. A Jenkins multibranch job checks the `main` branch every five minutes, runs Gradle backend checks and builds the Android APK, then builds an immutable Docker image and pushes it to Amazon ECR. Jenkins deploys the image to the AWS test EC2 instance through Systems Manager Run Command. The remote deploy script loads database credentials from the test RDS secret and the Shazam key from AWS Secrets Manager, starts Docker Compose, and checks `/api/health`. Jenkins pauses for approval before deploying the exact same image tag to production.
+Neon is the application's PostgreSQL host. The website uses a pooled TLS connection so multiple local instances can share the database. Docker builds and runs the application; GitHub stores the source; Jenkins can run CI separately. Neon has usage and storage limits, so writes may be unavailable if the project reaches its plan quota.
 
-Use a Jenkins GitHub credential to read the repository. The Jenkins EC2 instance uses its IAM role for ECR and Systems Manager; do not add AWS access keys to Jenkins or the repository. The pipeline uses polling so Jenkins needs no public webhook port. Before the first app build, start an interactive Systems Manager session to the `jenkins_instance_id` output and review/accept the Android SDK licenses, then install API 36 and build tools 36.0.0:
+AWS is an optional deployment target in the existing Terraform configuration. EC2, ECR, Jenkins, and related services can incur charges; no AWS resources are created by building or running the local Compose stack. Review the AWS cost before applying Terraform. Neon is a database host and can replace PostgreSQL’s location, but it does not replace Jenkins, Docker, or GitHub.
 
-```bash
-sudo -u jenkins /opt/android-sdk/cmdline-tools/latest/bin/sdkmanager --sdk_root=/opt/android-sdk --licenses
-sudo -u jenkins /opt/android-sdk/cmdline-tools/latest/bin/sdkmanager --sdk_root=/opt/android-sdk 'platform-tools' 'platforms;android-36' 'build-tools;36.0.0'
-```
+## Jenkins (local CI)
 
-## Music catalogue data
+Jenkins is open-source software and can run locally without a Jenkins hosting fee. Start the optional Jenkins container with `docker compose --profile ci up -d jenkins`, then open <http://localhost:8081>. For first setup, run `docker exec melodex-jenkins-1 cat /var/jenkins_home/secrets/initialAdminPassword` in PowerShell and enter the result on the unlock screen. Install the suggested plugins and create your own administrator account. Create a Pipeline job using **Pipeline script from SCM**, Git, the project repository URL, branch `main`, and script path `Jenkinsfile`. The pipeline polls GitHub, runs `:server:check` and `:server:bootJar`, and archives the JAR. Jenkins is bound to localhost and does not expose an internet-facing service. A hosted Jenkins service or a cloud VM could add charges.
 
-The site can search a full local snapshot of MusicBrainz's canonical track metadata, alongside the songs recognized by Shazam and the project's demo releases. To load the latest snapshot, start the Compose stack and run:
+## Recognition cache
 
-```powershell
-.\scripts\import-musicbrainz-catalog.ps1
-```
+`CATALOGUE_CACHE_MAX_ENTRIES` sets the default maximum of 5,000 disposable Shazam recognition records. Before adding a new track, the server removes the oldest eligible recognition records when the cache is over its limit. Records tied to non-demo listings or purchase requests are preserved. Demo-only offers may be removed with an evicted track. This limit controls the recognition cache; it does not guarantee that any hosted database provider’s storage quota can never be reached.
 
-The importer downloads the official compressed snapshot (about 2.25 GiB for the 2026-11-17 release), verifies its SHA-256 checksum, and loads the canonical track metadata into PostgreSQL before creating local text-search indexes. That release contains 32,809,489 rows. The imported table currently occupies about 13 GiB in PostgreSQL. Keep additional disk space available before refreshing it because the old catalogue remains in place while the replacement is downloaded and indexed. MusicBrainz refreshes the CC0 snapshot twice a month. The canonical data groups equivalent recording versions into representative entries, so it gives the demo a very broad searchable music metadata catalogue; it is not a catalogue of audio files or Shazam fingerprints. [MusicBrainz canonical dataset](https://musicbrainz.org/doc/Canonical_MusicBrainz_data), [download page](https://metabrainz.org/datasets/derived-dumps), [CC0 data license](https://musicbrainz.org/doc/About/Data_License).
+## Admin access
 
-If the snapshot has not been imported or a search has no local match, the server also uses the free MusicBrainz Recording API. API requests include a descriptive User-Agent and respect its one-request-per-second limit. [MusicBrainz API](https://musicbrainz.org/doc/MusicBrainz_API), [search API](https://musicbrainz.org/doc/MusicBrainz_API/Search), [rate limits](https://musicbrainz.org/doc/MusicBrainz_API/Rate_Limiting).
-
-Frankfurter provides the no-key exchange-rate endpoint. Rates are cached by the server for 12 hours; if the service is unavailable, the app continues to show VND. [Frankfurter](https://frankfurter.dev/).
-
-## AWS environment
-
-The Terraform plan creates the three Ubuntu EC2 servers described in the brief: Jenkins/build, test, and production. It also creates separate private RDS PostgreSQL databases for test and production, a private ECR repository, runtime-secret references, Systems Manager access, and CloudWatch memory/disk metrics plus a production CPU alarm. NGINX serves the website on the production instance. Jenkins and test access are restricted to the `admin_cidr` provided during Terraform planning; there is no inbound SSH rule.
-
-Terraform files do not create AWS resources until you run `terraform apply`. Creating the EC2 and RDS resources incurs AWS charges. Set your own public IPv4 CIDR before applying:
-
-```powershell
-cd infra/terraform
-Copy-Item terraform.tfvars.example terraform.tfvars
-# Edit admin_cidr to your public address with /32, then:
-terraform init
-terraform plan
-terraform apply
-```
-
-After apply, configure Jenkins at the `jenkins_url` output as a multibranch pipeline pointing at this GitHub repository and using `Jenkinsfile`. Then, from the project root, upload the local RapidAPI key to the secret placeholder created by Terraform:
-
-```powershell
-.\scripts\publish-shazam-secret.ps1
-```
-
-The command sends the private key to AWS Secrets Manager; the Jenkins deployment retrieves it at runtime and does not place it in the container image. A developer's `application-private.properties` is for the local app only.
-
-## Deployment and recovery notes
-
-- The project uses Java/Spring Boot and a native Android app, following the later implementation choice. It does not yet provide the brief's Django/React Native iOS client.
-- The marketplace uses fictional sample records and fictional demo offers. Accounts, real orders, payment processing, seller payouts, and shipping are not implemented.
-- Shazam is used for audio recognition; its private recognition catalogue is not copied into the project database. MusicBrainz is a separate free, searchable metadata source; its local results are cached on demand and do not contain audio fingerprints.
-- The infrastructure opens production HTTP on port 80 for the class demo. Add a domain and TLS termination before using it publicly.
-- To roll back, rerun `scripts/deploy-ssm.sh production <previous-ECR-image-uri>` from Jenkins or an AWS CLI session with the appropriate IAM permissions. Keep at least the prior image tag in ECR.
-- Keep Terraform state private. Do not commit `terraform.tfvars`, state files, or `application-private.properties`.
+`/admin` opens a separate administrator sign-in page, then the monitoring dashboard. The local default is `admin` / `password123`; `ADMIN_USERNAME` and `ADMIN_PASSWORD` can override it. Change the default before any public deployment. The dashboard refreshes automatically and shows catalogue records, Shazam references, source IDs, demo and total listing counts, recognition-cache usage, and PostgreSQL database size.

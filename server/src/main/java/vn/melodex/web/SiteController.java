@@ -1,10 +1,13 @@
 package vn.melodex.web;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 import vn.melodex.catalog.CatalogueSearchPage;
 import vn.melodex.catalog.CatalogService;
@@ -12,9 +15,13 @@ import vn.melodex.catalog.MarketplacePage;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Set;
 
 @Controller
 public class SiteController {
+    private static final Set<String> MARKETPLACE_VIEWS = Set.of(
+            "offers", "wantlist", "saved", "collection", "purchases", "cart", "settings");
+
     private final CatalogService catalog;
 
     public SiteController(CatalogService catalog) {
@@ -22,66 +29,73 @@ public class SiteController {
     }
 
     @GetMapping("/")
-    public String home(@RequestParam(required = false) String query,
-                       @RequestParam(required = false) String artist,
-                       @RequestParam(required = false) Integer fromYear,
-                       @RequestParam(required = false) Integer toYear,
-                       @RequestParam(required = false) String format,
-                       Model model) {
-        model.addAttribute("items", catalog.search(query, artist, fromYear, toYear, format));
-        model.addAttribute("catalogueEstimate", catalog.estimatedCanonicalEntries());
-        model.addAttribute("query", safe(query));
-        model.addAttribute("artist", safe(artist));
-        model.addAttribute("fromYear", fromYear);
-        model.addAttribute("toYear", toYear);
-        model.addAttribute("format", safe(format));
-        model.addAttribute("formats", new String[]{"VINYL", "CD", "CASSETTE", "DIGITAL"});
+    public String home(Model model) {
+        model.addAttribute("catalogueCount", catalog.catalogueRecordCount());
+        model.addAttribute("cataloguePreview", catalog.searchCatalogue(null, null, 1, 12).items());
+        MarketplacePage offers = catalog.searchMarketplace(null, null, null, null, null, null,
+                null, null, null, null, null, "newest", 1, 4);
+        model.addAttribute("offerPreview", offers.items());
+        model.addAttribute("offerCount", offers.totalItems());
         return "home";
     }
 
-    @GetMapping("/search")
-    public String advancedSearch(@RequestParam(required = false) String artist,
-                                 @RequestParam(required = false) String release,
-                                 @RequestParam(required = false) String track,
-                                 @RequestParam(defaultValue = "1") int page,
-                                 Model model) {
-        CatalogueSearchPage results = catalog.searchAdvancedCatalogue(artist, release, track, page, 25);
-        model.addAttribute("results", results);
-        model.addAttribute("catalogueEstimate", catalog.estimatedCanonicalEntries());
-        model.addAttribute("artist", safe(artist));
-        model.addAttribute("release", safe(release));
-        model.addAttribute("track", safe(track));
-        return "search";
+    @GetMapping("/catalogue")
+    public String catalogue(Model model) {
+        return renderMarketplace(null, null, null, null, null, null, null, null,
+                null, null, "newest", 1, "catalogue", model);
+    }
+
+    @PostMapping("/catalogue/search")
+    public String searchCatalogue(@RequestParam(required = false) String artist,
+                                  @RequestParam(required = false) String track,
+                                  @RequestParam(defaultValue = "1") int page,
+                                  Model model) {
+        return renderMarketplace(null, artist, track, null, null, null, null, null,
+                null, null, "newest", page, "catalogue", model);
     }
 
     @GetMapping("/marketplace")
-    public String marketplace(@RequestParam(required = false) String query,
-                              @RequestParam(required = false) String artist,
-                              @RequestParam(required = false) Integer fromYear,
-                              @RequestParam(required = false) Integer toYear,
-                              @RequestParam(required = false) String format,
-                              @RequestParam(required = false) String condition,
-                              @RequestParam(required = false) String seller,
-                              @RequestParam(required = false) BigDecimal minPrice,
-                              @RequestParam(required = false) BigDecimal maxPrice,
-                              @RequestParam(defaultValue = "newest") String sort,
-                              @RequestParam(defaultValue = "1") int page,
-                              @RequestParam(defaultValue = "all") String view,
-                              Model model) {
+    public String marketplace(Model model) {
+        return renderMarketplace(null, null, null, null, null, null, null, null,
+                null, null, "newest", 1, "offers", model);
+    }
+
+    @GetMapping("/marketplace/{view}")
+    public String marketplaceView(@PathVariable String view, Model model) {
+        if (!MARKETPLACE_VIEWS.contains(view)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+        }
+        return renderMarketplace(null, null, null, null, null, null, null, null,
+                null, null, "newest", 1, view, model);
+    }
+
+    @PostMapping("/marketplace/search")
+    public String searchMarketplace(@RequestParam(required = false) String query,
+                                    @RequestParam(required = false) String artist,
+                                    @RequestParam(required = false) Integer fromYear,
+                                    @RequestParam(required = false) Integer toYear,
+                                    @RequestParam(required = false) String format,
+                                    @RequestParam(required = false) String condition,
+                                    @RequestParam(required = false) String seller,
+                                    @RequestParam(required = false) BigDecimal minPrice,
+                                    @RequestParam(required = false) BigDecimal maxPrice,
+                                    @RequestParam(defaultValue = "newest") String sort,
+                                    @RequestParam(defaultValue = "1") int page,
+                                    @RequestParam(defaultValue = "offers") String view,
+                                    Model model) {
+        if (!MARKETPLACE_VIEWS.contains(view)) view = "offers";
+        return renderMarketplace(query, artist, null, fromYear, toYear, format, condition,
+                seller, minPrice, maxPrice, sort, page, view, model);
+    }
+
+    private String renderMarketplace(String query, String artist, String track,
+                                     Integer fromYear, Integer toYear, String format,
+                                     String condition, String seller, BigDecimal minPrice,
+                                     BigDecimal maxPrice, String sort, int page,
+                                     String view, Model model) {
         MarketplacePage listings;
         String error = "";
         try {
-            // A catalogue search can find a recording that has no local marketplace row yet.
-            // Cache matching metadata and attach the explicitly labelled demo offer so the
-            // catalogue-to-buyer flow remains usable for newly discovered tracks.
-            boolean hasSearchText = (query != null && !query.isBlank())
-                    || (artist != null && !artist.isBlank());
-            if (hasSearchText
-                    && (format == null || format.isBlank())
-                    && (condition == null || condition.isBlank())
-                    && seller == null && minPrice == null && maxPrice == null) {
-                catalog.search(query, artist, fromYear, toYear, format);
-            }
             listings = catalog.searchMarketplace(query, artist, fromYear, toYear, format, condition,
                     seller, minPrice, maxPrice, null, null, sort, page, 25);
         } catch (IllegalArgumentException exception) {
@@ -89,9 +103,14 @@ public class SiteController {
             listings = catalog.searchMarketplace(null, null, null, null, null, null,
                     null, null, null, null, null, "newest", 1, 25);
         }
+        CatalogueSearchPage cataloguePage = view.equals("catalogue")
+                ? catalog.searchCatalogue(artist, track, page, 25)
+                : new CatalogueSearchPage(List.of(), page, 25, 0);
         model.addAttribute("listingPage", listings);
+        model.addAttribute("cataloguePage", cataloguePage);
         model.addAttribute("query", safe(query));
         model.addAttribute("artist", safe(artist));
+        model.addAttribute("track", safe(track));
         model.addAttribute("fromYear", fromYear);
         model.addAttribute("toYear", toYear);
         model.addAttribute("format", safe(format));
@@ -100,8 +119,8 @@ public class SiteController {
         model.addAttribute("minPrice", minPrice);
         model.addAttribute("maxPrice", maxPrice);
         model.addAttribute("sort", listings.sort());
-        model.addAttribute("view", List.of("all", "wantlist", "purchases", "cart", "settings").contains(view)
-                ? view : "all");
+        model.addAttribute("view", view);
+        model.addAttribute("catalogueCount", catalog.catalogueRecordCount());
         model.addAttribute("error", error);
         model.addAttribute("formats", new String[]{"VINYL", "CD", "CASSETTE", "DIGITAL"});
         model.addAttribute("conditions", new String[]{"NEW", "LIKE_NEW", "GOOD", "FAIR", "DIGITAL"});
@@ -125,12 +144,12 @@ public class SiteController {
                                 RedirectAttributes redirect) {
         try {
             catalog.createListing(releaseId, seller, format, condition, price);
-            redirect.addFlashAttribute("notice", "Your sample listing is now in the demo catalogue.");
+            redirect.addFlashAttribute("notice", "Your listing is now available.");
         } catch (IllegalArgumentException exception) {
             redirect.addFlashAttribute("error", exception.getMessage());
             return "redirect:/sell";
         }
-        return "redirect:/";
+        return "redirect:/marketplace/offers";
     }
 
     @PostMapping("/listings/request")
@@ -139,15 +158,14 @@ public class SiteController {
                                   RedirectAttributes redirect) {
         try {
             long requestId = catalog.requestPurchase(listingId, buyerName);
-            redirect.addFlashAttribute("notice", "Demo request #" + requestId + " was recorded. No payment was taken.");
+            redirect.addFlashAttribute("notice", "Order request #" + requestId + " was received.");
         } catch (IllegalArgumentException exception) {
             redirect.addFlashAttribute("error", exception.getMessage());
         }
-        return "redirect:/";
+        return "redirect:/marketplace/purchases";
     }
 
     private static String safe(String value) {
         return value == null ? "" : value;
     }
 }
-

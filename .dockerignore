@@ -1,5 +1,7 @@
 .git
 .gradle
+**/build
+artifacts
 local.properties
 application-private.properties
 infra/terraform/.terraform
